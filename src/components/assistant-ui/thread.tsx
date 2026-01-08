@@ -23,6 +23,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  Loader2Icon,
   MicIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -136,7 +137,7 @@ const ThreadSuggestions: FC = () => {
 
 const Composer: FC = () => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
-  const { sendMessage, isLoading } = useChatContext();
+  const { sendMessage, isLoading, progressStatus } = useChatContext();
   const voiceRecorder = useVoiceRecorder();
 
   const handleVoiceComplete = async (audioBase64: string, format: string) => {
@@ -155,6 +156,17 @@ const Composer: FC = () => {
 
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
+      {/* Progress indicator */}
+      {isLoading && (
+        <div className="text-muted-foreground mb-2 flex items-center gap-2 px-2 text-sm">
+          <Loader2Icon className="size-4 animate-spin" />
+          <span className="italic">
+            {progressStatus
+              ? progressStatus.replace(/^_|_$/g, "")
+              : "Thinking..."}
+          </span>
+        </div>
+      )}
       <div className="border-input bg-background has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-ring/20 flex w-full flex-col rounded-2xl border px-1 pt-2 transition-shadow outline-none has-[textarea:focus-visible]:ring-2">
         <ComposerPrimitive.Input
           placeholder="Send a message..."

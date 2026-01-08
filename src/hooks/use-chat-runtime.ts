@@ -6,20 +6,33 @@ import {
 } from "@assistant-ui/react";
 import { useState, useCallback } from "react";
 import type { ChatResponse } from "@/types/engine";
+import type { SSEEvent } from "@/lib/progress-store";
 
-interface ChatMessage extends ThreadMessageLike {
-  audioBase64?: string; // For voice responses
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: Array<{ type: "text"; text: string }>;
+  createdAt: Date;
+  audioBase64?: string;
 }
 
-// Convert internal message to assistant-ui ThreadMessageLike format
 function toThreadMessage(message: ChatMessage): ThreadMessageLike {
-  return {
+  const base = {
     id: message.id,
     role: message.role,
     content: message.content,
     createdAt: message.createdAt,
-    status: message.status,
   };
+
+  // Status is only valid for assistant messages
+  if (message.role === "assistant") {
+    return {
+      ...base,
+      status: { type: "complete" as const, reason: "stop" as const },
+    };
+  }
+
+  return base;
 }
 
 function createMessage(
@@ -33,7 +46,6 @@ function createMessage(
     role,
     content: [{ type: "text" as const, text: content }],
     createdAt: new Date(),
-    status: { type: "complete" as const, reason: "stop" as const },
     audioBase64,
   };
 }
@@ -41,6 +53,7 @@ function createMessage(
 export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [progressStatus, setProgressStatus] = useState<string | null>(null);
   const [lastAudioResponse, setLastAudioResponse] = useState<string | null>(
     null
   );
@@ -56,10 +69,11 @@ export function useChatRuntime() {
 
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
+      setProgressStatus(null);
       setLastAudioResponse(null);
 
       try {
-        const response = await fetch("/api/chat", {
+        const response = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -74,42 +88,82 @@ export function useChatRuntime() {
           throw new Error("Failed to send message");
         }
 
-        const data: ChatResponse = await response.json();
+        // Read SSE stream
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("No response body");
+        }
 
-        // Add assistant response(s)
-        const assistantMessages: ChatMessage[] = data.responses.map(
-          (responseText, i) =>
-            createMessage(
-              `assistant-${Date.now()}-${i}`,
-              "assistant",
-              responseText,
-              i === 0 ? data.voice_audio_base64 || undefined : undefined
-            )
-        );
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        setMessages((prev) => [...prev, ...assistantMessages]);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        // Store audio for playback
-        if (data.voice_audio_base64) {
-          setLastAudioResponse(data.voice_audio_base64);
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE events from buffer
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const event: SSEEvent = JSON.parse(line.slice(6));
+
+                if (event.type === "progress") {
+                  setProgressStatus(event.text);
+                } else if (event.type === "complete") {
+                  handleComplete(event.response);
+                } else if (event.type === "error") {
+                  handleError(event.error);
+                }
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          }
         }
       } catch (error) {
         console.error("Chat error:", error);
-        // Add error message
-        setMessages((prev) => [
-          ...prev,
-          createMessage(
-            `error-${Date.now()}`,
-            "assistant",
-            "Sorry, I encountered an error. Please try again."
-          ),
-        ]);
-      } finally {
-        setIsLoading(false);
+        handleError("Sorry, I encountered an error. Please try again.");
       }
     },
     []
   );
+
+  const handleComplete = useCallback((data: ChatResponse) => {
+    // Add assistant response(s)
+    const assistantMessages: ChatMessage[] = data.responses.map(
+      (responseText, i) =>
+        createMessage(
+          `assistant-${Date.now()}-${i}`,
+          "assistant",
+          responseText,
+          i === 0 ? data.voice_audio_base64 || undefined : undefined
+        )
+    );
+
+    setMessages((prev) => [...prev, ...assistantMessages]);
+
+    // Store audio for playback
+    if (data.voice_audio_base64) {
+      setLastAudioResponse(data.voice_audio_base64);
+    }
+
+    setIsLoading(false);
+    setProgressStatus(null);
+  }, []);
+
+  const handleError = useCallback((errorMessage: string) => {
+    setMessages((prev) => [
+      ...prev,
+      createMessage(`error-${Date.now()}`, "assistant", errorMessage),
+    ]);
+    setIsLoading(false);
+    setProgressStatus(null);
+  }, []);
 
   // Create assistant-ui runtime
   const runtime = useExternalStoreRuntime({
@@ -127,6 +181,7 @@ export function useChatRuntime() {
     runtime,
     messages,
     isLoading,
+    progressStatus,
     sendMessage,
     lastAudioResponse,
     clearMessages: () => setMessages([]),

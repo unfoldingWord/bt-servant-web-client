@@ -1,5 +1,5 @@
 import { AssistantProvider } from "@/components/providers/assistant-provider";
-import { Thread } from "@/components/assistant-ui/thread";
+import { ClientThread } from "@/components/assistant-ui/client-thread";
 import { auth, signOut } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -32,7 +32,7 @@ export default async function ChatPage() {
           </div>
         </header>
         <main className="flex-1 overflow-hidden">
-          <Thread />
+          <ClientThread />
         </main>
       </div>
     </AssistantProvider>
