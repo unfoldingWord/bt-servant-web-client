@@ -159,7 +159,7 @@ const ThreadWelcome: FC = () => {
 
 const Composer: FC = () => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
-  const { sendMessage, isLoading, progressStatus } = useChatContext();
+  const { sendMessage, isLoading } = useChatContext();
   const voiceRecorder = useVoiceRecorder();
 
   const handleVoiceComplete = async (audioBase64: string, format: string) => {

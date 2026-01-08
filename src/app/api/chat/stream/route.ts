@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     parsed = ChatStreamRequestSchema.parse(body);
-  } catch (error) {
+  } catch {
     return new Response(JSON.stringify({ error: "Invalid request" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
