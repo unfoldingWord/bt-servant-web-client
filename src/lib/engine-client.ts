@@ -22,7 +22,9 @@ export async function sendChatMessage(
   message: string,
   messageType: MessageType = "text",
   audioBase64?: string,
-  audioFormat?: string
+  audioFormat?: string,
+  progressCallbackUrl?: string,
+  progressThrottleSeconds?: number
 ): Promise<ChatResponse> {
   const payload: ChatRequest = {
     client_id: CLIENT_ID,
@@ -31,6 +33,10 @@ export async function sendChatMessage(
     message_type: messageType,
     ...(audioBase64 && { audio_base64: audioBase64 }),
     ...(audioFormat && { audio_format: audioFormat }),
+    ...(progressCallbackUrl && { progress_callback_url: progressCallbackUrl }),
+    ...(progressThrottleSeconds && {
+      progress_throttle_seconds: progressThrottleSeconds,
+    }),
   };
 
   const controller = new AbortController();

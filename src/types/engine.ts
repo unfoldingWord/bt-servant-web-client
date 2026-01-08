@@ -9,6 +9,16 @@ export interface ChatRequest {
   message_type: MessageType;
   audio_base64?: string;
   audio_format?: string; // "webm", "ogg", "mp3"
+  progress_callback_url?: string;
+  progress_throttle_seconds?: number;
+}
+
+// Progress callback payload from engine webhook
+export interface ProgressCallback {
+  user_id: string;
+  message_key: string;
+  text: string;
+  timestamp: number;
 }
 
 export interface ChatResponse {
