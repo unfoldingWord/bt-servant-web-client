@@ -60,6 +60,33 @@ export function useChatRuntime() {
   const [isLoading, setIsLoading] = useState(false);
   const [progressStatus, setProgressStatus] = useState<string | null>(null);
 
+  // Define handlers before sendMessage so they can be in the dependency array
+  const handleComplete = useCallback((data: ChatResponse) => {
+    // Add assistant response(s)
+    const assistantMessages: ChatMessage[] = data.responses.map(
+      (responseText, i) =>
+        createMessage(
+          `assistant-${Date.now()}-${i}`,
+          "assistant",
+          responseText,
+          i === 0 ? data.voice_audio_base64 || undefined : undefined
+        )
+    );
+
+    setMessages((prev) => [...prev, ...assistantMessages]);
+    setIsLoading(false);
+    setProgressStatus(null);
+  }, []);
+
+  const handleError = useCallback((errorMessage: string) => {
+    setMessages((prev) => [
+      ...prev,
+      createMessage(`error-${Date.now()}`, "assistant", errorMessage),
+    ]);
+    setIsLoading(false);
+    setProgressStatus(null);
+  }, []);
+
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
       // Add user message
@@ -131,34 +158,8 @@ export function useChatRuntime() {
         handleError("Sorry, I encountered an error. Please try again.");
       }
     },
-    []
+    [handleComplete, handleError]
   );
-
-  const handleComplete = useCallback((data: ChatResponse) => {
-    // Add assistant response(s)
-    const assistantMessages: ChatMessage[] = data.responses.map(
-      (responseText, i) =>
-        createMessage(
-          `assistant-${Date.now()}-${i}`,
-          "assistant",
-          responseText,
-          i === 0 ? data.voice_audio_base64 || undefined : undefined
-        )
-    );
-
-    setMessages((prev) => [...prev, ...assistantMessages]);
-    setIsLoading(false);
-    setProgressStatus(null);
-  }, []);
-
-  const handleError = useCallback((errorMessage: string) => {
-    setMessages((prev) => [
-      ...prev,
-      createMessage(`error-${Date.now()}`, "assistant", errorMessage),
-    ]);
-    setIsLoading(false);
-    setProgressStatus(null);
-  }, []);
 
   // Create assistant-ui runtime
   const runtime = useExternalStoreRuntime({
