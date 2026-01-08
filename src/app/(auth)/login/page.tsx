@@ -22,7 +22,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-dvh overflow-y-auto bg-[#F5F5F0] dark:bg-[#1a1918]">
+    <div className="min-h-dvh overflow-y-auto bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
       <div className="flex min-h-dvh flex-col px-4 py-4 sm:px-6 sm:py-6 md:px-8 md:py-8">
         {/* Logo in upper left */}
         <div className="shrink-0">

@@ -21,19 +21,11 @@ export async function POST(req: NextRequest) {
     const body: ProgressCallback = await req.json();
 
     // Push progress to SSE stream
-    const pushed = pushProgress(requestId, body);
-
-    if (!pushed) {
-      // Request not found or stream closed - this is OK, engine continues
-      console.warn(
-        `Progress callback for unknown/closed request: ${requestId.substring(0, 8)}...`
-      );
-    }
+    pushProgress(requestId, body);
 
     // Always return 200 - fire-and-forget pattern
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("Progress callback error:", error);
+  } catch {
     // Still return 200 to not block engine
     return NextResponse.json({ ok: true });
   }
