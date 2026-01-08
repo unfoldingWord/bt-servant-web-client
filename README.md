@@ -1,36 +1,216 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BT Servant Web Client
+
+A modern web client for BT Servant, providing a conversational interface to curated Bible translation resources. Built with Next.js 16, React 19, and the assistant-ui framework.
+
+## Features
+
+- **Chat Interface**: Clean, responsive chat UI with markdown rendering
+- **Voice Input/Output**: Record voice messages and hear AI responses
+- **Real-time Progress**: Live status updates during AI processing via SSE
+- **Authentication**: Sign in with Google OAuth or email
+- **Dark Mode**: Full dark mode support
+
+## Architecture
+
+```
+Browser <---> Next.js BFF <---> bt-servant-engine
+             (API routes)       (AI backend)
+```
+
+The web client follows a "thin gateway" pattern:
+
+- All AI logic lives in the bt-servant-engine
+- Next.js acts as a Backend-for-Frontend (BFF), proxying requests with authentication
+- Real-time progress updates via Server-Sent Events (SSE) with webhook callbacks
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **UI**: React 19, Tailwind CSS 4, shadcn/ui components
+- **Chat**: assistant-ui framework with custom runtime
+- **Auth**: NextAuth.js v5 (Google OAuth + Email credentials)
+- **Icons**: Font Awesome Pro, Lucide React, Radix Icons
+- **State**: Zustand for global state
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── (auth)/login/          # Login page
+│   ├── (protected)/chat/      # Main chat interface
+│   └── api/
+│       ├── auth/[...nextauth]/ # NextAuth handlers
+│       ├── chat/stream/       # SSE streaming endpoint
+│       ├── preferences/       # User preferences
+│       └── progress-callback/ # Webhook for progress updates
+├── auth.ts                    # NextAuth configuration
+├── auth.config.ts             # Auth providers (Google, Email)
+├── components/
+│   ├── assistant-ui/          # Chat components (Thread, Composer, Messages)
+│   ├── providers/             # React context providers
+│   ├── ui/                    # shadcn/ui components
+│   └── voice/                 # Voice recorder and audio player
+├── hooks/
+│   ├── use-chat-runtime.ts    # assistant-ui external store runtime
+│   ├── use-voice-recorder.ts  # MediaRecorder API wrapper
+│   └── use-audio-player.ts    # Audio playback hook
+├── lib/
+│   ├── engine-client.ts       # HTTP client for bt-servant-engine
+│   └── progress-store.ts      # SSE event handling
+└── types/
+    └── engine.ts              # API type definitions
+```
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 20+
+- A running instance of [bt-servant-engine](https://github.com/unfoldingWord/bt-servant-engine)
+- Google OAuth credentials (for Google sign-in)
+
+### Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/unfoldingWord/bt-servant-web-client.git
+   cd bt-servant-web-client
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+3. Copy the environment example and configure:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+4. Edit `.env.local` with your values:
+
+   ```env
+   # NextAuth
+   NEXTAUTH_URL=http://localhost:3000
+   NEXTAUTH_SECRET=<generate with: openssl rand -base64 32>
+
+   # Google OAuth
+   GOOGLE_CLIENT_ID=<your-google-client-id>
+   GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+
+   # Engine
+   ENGINE_BASE_URL=http://localhost:8000
+   ENGINE_API_KEY=<your-engine-api-key>
+   CLIENT_ID=web
+
+   # Progress callbacks (optional)
+   PUBLIC_URL=http://localhost:3000
+   PROGRESS_THROTTLE_SECONDS=3.0
+   ```
+
+5. Run the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000)
+
+## Scripts
+
+| Command             | Description                        |
+| ------------------- | ---------------------------------- |
+| `npm run dev`       | Start development server           |
+| `npm run build`     | Build for production               |
+| `npm run start`     | Start production server            |
+| `npm run lint`      | Run ESLint (zero warnings allowed) |
+| `npm run lint:fix`  | Run ESLint with auto-fix           |
+| `npm run format`    | Format code with Prettier          |
+| `npm run typecheck` | Run TypeScript type checking       |
+
+## Authentication
+
+The app supports two authentication methods:
+
+1. **Google OAuth**: Sign in with your Google account
+2. **Email**: Enter your email address to sign in (uses email as user ID)
+
+User IDs are passed to the bt-servant-engine for personalized responses and conversation history.
+
+## API Routes
+
+### POST /api/chat/stream
+
+Streams chat responses via Server-Sent Events (SSE).
+
+**Request:**
+
+```json
+{
+  "message": "Help me translate John 3:16",
+  "message_type": "text",
+  "audio_base64": null,
+  "audio_format": null
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**SSE Events:**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `progress`: Real-time status updates during processing
+- `complete`: Final response with text and optional audio
+- `error`: Error message if something went wrong
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### GET/PUT /api/preferences
 
-## Learn More
+Manage user preferences (response language, agentic strength, etc.)
 
-To learn more about Next.js, take a look at the following resources:
+### POST /api/progress-callback
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Webhook endpoint for bt-servant-engine to push progress updates.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Voice Features
 
-## Deploy on Vercel
+- **Recording**: Uses MediaRecorder API with WebM/Opus codec
+- **Playback**: HTML5 Audio with seek support
+- **Format**: Audio is base64-encoded for transmission
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Development
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Pre-commit Hooks
+
+The project uses Husky and lint-staged for pre-commit checks:
+
+- ESLint with auto-fix
+- Prettier formatting
+- TypeScript type checking
+- Production build verification
+
+### Code Style
+
+- TypeScript strict mode
+- ESLint with Next.js config
+- Prettier with Tailwind CSS plugin
+- Zero ESLint warnings policy
+
+## Deployment
+
+The app can be deployed to any platform that supports Next.js:
+
+- Vercel (recommended)
+- Docker
+- Node.js server
+
+Ensure all environment variables are configured in your deployment environment.
+
+## Related Projects
+
+- [bt-servant-engine](https://github.com/unfoldingWord/bt-servant-engine) - AI backend
+- [bt-servant-whatsapp-gateway](https://github.com/unfoldingWord/bt-servant-whatsapp-gateway) - WhatsApp integration
+
+## License
+
+Copyright 2025 unfoldingWord. All rights reserved.
