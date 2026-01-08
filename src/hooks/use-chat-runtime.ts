@@ -22,6 +22,11 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
     role: message.role,
     content: message.content,
     createdAt: message.createdAt,
+    metadata: {
+      custom: {
+        audioBase64: message.audioBase64,
+      },
+    },
   };
 
   // Status is only valid for assistant messages
@@ -54,9 +59,6 @@ export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [progressStatus, setProgressStatus] = useState<string | null>(null);
-  const [lastAudioResponse, setLastAudioResponse] = useState<string | null>(
-    null
-  );
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
@@ -70,7 +72,6 @@ export function useChatRuntime() {
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
       setProgressStatus(null);
-      setLastAudioResponse(null);
 
       try {
         const response = await fetch("/api/chat/stream", {
@@ -146,12 +147,6 @@ export function useChatRuntime() {
     );
 
     setMessages((prev) => [...prev, ...assistantMessages]);
-
-    // Store audio for playback
-    if (data.voice_audio_base64) {
-      setLastAudioResponse(data.voice_audio_base64);
-    }
-
     setIsLoading(false);
     setProgressStatus(null);
   }, []);
@@ -183,7 +178,6 @@ export function useChatRuntime() {
     isLoading,
     progressStatus,
     sendMessage,
-    lastAudioResponse,
     clearMessages: () => setMessages([]),
   };
 }
