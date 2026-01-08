@@ -1,35 +1,24 @@
 import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { ClientThread } from "@/components/assistant-ui/client-thread";
 import { auth, signOut } from "@/auth";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserMenu } from "@/components/user-menu";
 
 export default async function ChatPage() {
   const session = await auth();
 
+  const handleSignOut = async () => {
+    "use server";
+    await signOut({ redirectTo: "/login" });
+  };
+
   return (
     <AssistantProvider>
-      <div className="flex h-screen flex-col">
-        <header className="flex items-center justify-between border-b px-4 py-3">
-          <h1 className="text-lg font-semibold">BT Servant</h1>
-          <div className="flex items-center gap-3">
-            <Avatar className="size-8">
-              <AvatarImage src={session?.user?.image || undefined} />
-              <AvatarFallback>
-                {session?.user?.name?.[0]?.toUpperCase() || "U"}
-              </AvatarFallback>
-            </Avatar>
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/login" });
-              }}
-            >
-              <Button variant="ghost" size="sm" type="submit">
-                Sign out
-              </Button>
-            </form>
-          </div>
+      <div className="flex h-screen flex-col bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
+        <header className="flex items-center justify-end bg-transparent px-4 py-3">
+          <UserMenu
+            userInitial={session?.user?.name?.[0]?.toUpperCase() || "U"}
+            onSignOut={handleSignOut}
+          />
         </header>
         <main className="flex-1 overflow-hidden">
           <ClientThread />
