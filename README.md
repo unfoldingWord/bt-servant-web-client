@@ -210,7 +210,3 @@ Ensure all environment variables are configured in your deployment environment.
 
 - [bt-servant-engine](https://github.com/unfoldingWord/bt-servant-engine) - AI backend
 - [bt-servant-whatsapp-gateway](https://github.com/unfoldingWord/bt-servant-whatsapp-gateway) - WhatsApp integration
-
-## License
-
-Copyright 2025 unfoldingWord. All rights reserved.
