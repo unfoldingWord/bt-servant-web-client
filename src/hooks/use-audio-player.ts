@@ -9,6 +9,7 @@ interface UseAudioPlayerReturn {
   play: (base64Audio: string, format?: string) => void;
   pause: () => void;
   stop: () => void;
+  seek: (time: number) => void;
 }
 
 export function useAudioPlayer(): UseAudioPlayerReturn {
@@ -88,6 +89,13 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     }
   }, []);
 
+  const seek = useCallback((time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  }, []);
+
   return {
     isPlaying,
     currentTime,
@@ -95,5 +103,6 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     play,
     pause,
     stop,
+    seek,
   };
 }

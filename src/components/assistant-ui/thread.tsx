@@ -12,15 +12,10 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAssistantState,
 } from "@assistant-ui/react";
-import * as Avatar from "@radix-ui/react-avatar";
-import {
-  ArrowUpIcon,
-  ClipboardIcon,
-  Pencil1Icon,
-  ReloadIcon,
-} from "@radix-ui/react-icons";
-import { Loader2Icon, MicIcon, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowUpIcon, ClipboardIcon } from "@radix-ui/react-icons";
+import { Loader2Icon, MicIcon } from "lucide-react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 import {
@@ -29,6 +24,25 @@ import {
   faCircleInfo,
 } from "@fortawesome/pro-regular-svg-icons";
 import { useState, type FC } from "react";
+
+const LoadingIndicator: FC = () => {
+  const { isLoading, progressStatus } = useChatContext();
+
+  if (!isLoading) return null;
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-2">
+      <div className="flex items-center gap-2 text-sm text-[#6b6a68] dark:text-[#9a9893]">
+        <Loader2Icon className="size-4 animate-spin" />
+        <span className="font-sans italic">
+          {progressStatus
+            ? progressStatus.replace(/^_|_$/g, "")
+            : "Thinking..."}
+        </span>
+      </div>
+    </div>
+  );
+};
 
 export const Thread: FC = () => {
   return (
@@ -40,14 +54,16 @@ export const Thread: FC = () => {
 
       {/* After first message: messages with sticky composer */}
       <AssistantIf condition={({ thread }) => !thread.isEmpty}>
-        <ThreadPrimitive.Viewport className="flex grow flex-col overflow-y-scroll px-4 pt-8">
+        <ThreadPrimitive.Viewport className="flex grow flex-col overflow-y-auto px-4 pt-8">
           <ThreadPrimitive.Messages components={{ Message: ChatMessage }} />
-          <div aria-hidden="true" className="h-4" />
-
-          <div className="sticky bottom-0 mx-auto mt-auto flex w-full max-w-3xl flex-col rounded-t-3xl pb-4">
-            <Composer />
-          </div>
+          <LoadingIndicator />
+          <div aria-hidden="true" className="min-h-8" />
         </ThreadPrimitive.Viewport>
+
+        {/* Sticky composer outside viewport */}
+        <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-4">
+          <Composer />
+        </div>
       </AssistantIf>
     </ThreadPrimitive.Root>
   );
@@ -76,7 +92,8 @@ const SUGGESTIONS = [
 
 const ThreadWelcome: FC = () => {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-4">
+    // pb-14 offsets for header height so content appears centered on full viewport
+    <div className="flex flex-1 flex-col items-center justify-center px-4 pb-14">
       <div className="flex w-full max-w-3xl flex-col items-center">
         {/* Welcome message */}
         <div className="mb-8 flex items-center justify-center gap-3">
@@ -146,8 +163,15 @@ const Composer: FC = () => {
   const voiceRecorder = useVoiceRecorder();
 
   const handleVoiceComplete = async (audioBase64: string, format: string) => {
+    console.log(
+      "[Composer] handleVoiceComplete called, base64 length:",
+      audioBase64?.length,
+      "format:",
+      format
+    );
     setShowVoiceRecorder(false);
     await sendMessage("", audioBase64, format);
+    console.log("[Composer] sendMessage completed");
   };
 
   if (showVoiceRecorder) {
@@ -163,18 +187,6 @@ const Composer: FC = () => {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* Progress indicator */}
-      {isLoading && (
-        <div className="mb-2 flex items-center gap-2 px-2 text-sm text-[#6b6a68] dark:text-[#9a9893]">
-          <Loader2Icon className="size-4 animate-spin" />
-          <span className="italic">
-            {progressStatus
-              ? progressStatus.replace(/^_|_$/g, "")
-              : "Thinking..."}
-          </span>
-        </div>
-      )}
-
       <ComposerPrimitive.Root className="flex w-full flex-col rounded-2xl border border-transparent bg-white p-0.5 shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.035),0_0_0_0.5px_rgba(0,0,0,0.08)] transition-shadow duration-200 focus-within:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.075),0_0_0_0.5px_rgba(0,0,0,0.15)] hover:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.05),0_0_0_0.5px_rgba(0,0,0,0.12)] dark:bg-[#1f1e1b] dark:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(108,106,96,0.15)] dark:focus-within:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.5),0_0_0_0.5px_rgba(108,106,96,0.3)] dark:hover:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(108,106,96,0.3)]">
         <div className="m-3.5 flex flex-col gap-3.5">
           <div className="relative">
@@ -225,43 +237,33 @@ const ChatMessage: FC = () => {
 };
 
 const UserMessage: FC = () => {
+  const isVoiceMessage = useAssistantState(({ message }) => {
+    const firstPart = message.content[0];
+    return firstPart?.type === "text" && firstPart.text === "[Voice message]";
+  });
+
   return (
-    <div className="group/user relative inline-flex max-w-[75ch] flex-col gap-2 rounded-xl bg-[#DDD9CE] py-2.5 pr-6 pl-2.5 text-[#1a1a18] transition-all dark:bg-[#393937] dark:text-[#eee]">
-      <div className="relative flex flex-row gap-2">
-        <div className="shrink-0 self-start transition-all duration-300">
-          <Avatar.Root className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#1a1a18] text-[12px] font-bold text-white select-none dark:bg-[#eee] dark:text-[#2b2a27]">
-            <Avatar.AvatarFallback>U</Avatar.AvatarFallback>
-          </Avatar.Root>
+    <div className="mb-6 flex justify-end">
+      <div className="inline-flex max-w-[75ch] flex-col gap-2 rounded-xl bg-[#DDD9CE] px-4 py-2.5 text-[#1a1a18] transition-all dark:bg-[#393937] dark:text-[#eee]">
+        <div className="whitespace-pre-wrap">
+          {isVoiceMessage ? (
+            <span className="flex items-center gap-1.5 font-sans text-[#6b6a68] italic dark:text-[#9a9893]">
+              <MicIcon className="size-4" />
+              Voice message
+            </span>
+          ) : (
+            <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+          )}
         </div>
-        <div className="flex-1">
-          <div className="relative grid grid-cols-1 gap-2 py-0.5">
-            <div className="whitespace-pre-wrap">
-              <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="pointer-events-none absolute right-2 bottom-0">
-        <ActionBarPrimitive.Root
-          autohide="not-last"
-          className="pointer-events-auto min-w-max translate-x-1 translate-y-4 rounded-lg border-[0.5px] border-[#00000015] bg-white/80 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition group-hover/user:translate-x-0.5 group-hover/user:opacity-100 dark:border-[#6c6a6040] dark:bg-[#1f1e1b]/80"
-        >
-          <div className="flex items-center text-[#6b6a68] dark:text-[#9a9893]">
-            <ActionBarPrimitive.Reload className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <ReloadIcon width={20} height={20} />
-            </ActionBarPrimitive.Reload>
-            <ActionBarPrimitive.Edit className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <Pencil1Icon width={20} height={20} />
-            </ActionBarPrimitive.Edit>
-          </div>
-        </ActionBarPrimitive.Root>
       </div>
     </div>
   );
 };
 
 const AssistantMessage: FC = () => {
-  const { lastAudioResponse } = useChatContext();
+  const audioBase64 = useAssistantState(
+    ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
+  );
 
   return (
     <div className="relative mb-12 font-serif">
@@ -274,13 +276,11 @@ const AssistantMessage: FC = () => {
       </div>
 
       {/* Audio player for voice responses */}
-      <MessagePrimitive.If lastOrHover>
-        {lastAudioResponse && (
-          <div className="mt-2 px-2">
-            <AudioPlayer audioBase64={lastAudioResponse} autoPlay />
-          </div>
-        )}
-      </MessagePrimitive.If>
+      {audioBase64 && (
+        <div className="mt-2 px-2">
+          <AudioPlayer audioBase64={audioBase64} />
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0">
         <ActionBarPrimitive.Root
@@ -292,19 +292,10 @@ const AssistantMessage: FC = () => {
             <ActionBarPrimitive.Copy className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
               <ClipboardIcon width={20} height={20} />
             </ActionBarPrimitive.Copy>
-            <ActionBarPrimitive.FeedbackPositive className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <ThumbsUp width={16} height={16} />
-            </ActionBarPrimitive.FeedbackPositive>
-            <ActionBarPrimitive.FeedbackNegative className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <ThumbsDown width={16} height={16} />
-            </ActionBarPrimitive.FeedbackNegative>
-            <ActionBarPrimitive.Reload className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <ReloadIcon width={20} height={20} />
-            </ActionBarPrimitive.Reload>
           </div>
           <AssistantIf condition={({ message }) => message.isLast}>
-            <p className="mt-2 w-full text-right text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
-              AI can make mistakes. Please double-check responses.
+            <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
+              BT Servant can make mistakes. Please double-check responses.
             </p>
           </AssistantIf>
         </ActionBarPrimitive.Root>

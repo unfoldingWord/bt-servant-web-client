@@ -18,7 +18,7 @@ export function UserMenu({ userInitial, onSignOut }: UserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-[#DDD9CE] text-sm font-semibold text-[#1a1a18] transition-all hover:bg-[#d0ccc0] focus:ring-2 focus:ring-[#ae5630] focus:ring-offset-2 focus:outline-none dark:bg-[#393937] dark:text-[#eee] dark:hover:bg-[#4a4a47]"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ae5630] text-sm font-semibold text-white transition-all hover:bg-[#c4633a] focus:ring-2 focus:ring-[#ae5630] focus:ring-offset-2 focus:outline-none dark:bg-[#ae5630] dark:text-white dark:hover:bg-[#c4633a]"
           aria-label="User menu"
         >
           {userInitial}

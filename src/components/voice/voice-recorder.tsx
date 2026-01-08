@@ -21,11 +21,20 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
 
   // Auto-start recording when component mounts
   useEffect(() => {
+    let cancelled = false;
+
     startRecording().catch((error) => {
-      console.error("Failed to start recording:", error);
-      onCancel();
+      if (!cancelled) {
+        console.error("Failed to start recording:", error);
+        onCancel();
+      }
     });
-  }, [startRecording, onCancel]);
+
+    return () => {
+      cancelled = true;
+      cancelRecording();
+    };
+  }, [startRecording, cancelRecording, onCancel]);
 
   const handleStop = async () => {
     const result = await stopRecording();
