@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+# Run lint-staged (eslint + prettier on changed files)
+npx lint-staged
+
+# Run type check on entire project
+echo "Running type check..."
+npm run typecheck
+
+# Run build to catch runtime/bundling errors
+echo "Running build..."
+npm run build

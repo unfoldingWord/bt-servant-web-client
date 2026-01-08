@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+
+# Build output
+.next
+out
+build
+dist
+
+# Generated files
+*.min.js
+*.min.css
+package-lock.json
+
+# Cache
+.cache
+.turbo
+
+# IDE
+.idea
+.vscode
+
+# Misc
+.env*
+!.env.example
