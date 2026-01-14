@@ -13,7 +13,21 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
 
+    console.log(
+      "[history] Fetching for user:",
+      session.user.id,
+      "email:",
+      session.user.email
+    );
+
     const history = await getChatHistory(session.user.id, limit, offset);
+
+    console.log(
+      "[history] Got",
+      history.entries.length,
+      "entries for user",
+      session.user.id
+    );
 
     return NextResponse.json(history);
   } catch (error) {
