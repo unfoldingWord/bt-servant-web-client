@@ -4,8 +4,8 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useState, useCallback } from "react";
-import type { ChatResponse } from "@/types/engine";
+import { useState, useCallback, useEffect } from "react";
+import type { ChatResponse, ChatHistoryResponse } from "@/types/engine";
 import type { SSEEvent } from "@/lib/progress-store";
 
 interface ChatMessage {
@@ -58,7 +58,60 @@ function createMessage(
 export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [progressStatus, setProgressStatus] = useState<string | null>(null);
+
+  // Load chat history on mount
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const response = await fetch("/api/chat/history");
+        if (!response.ok) {
+          console.error("Failed to load chat history");
+          return;
+        }
+
+        const history: ChatHistoryResponse = await response.json();
+
+        // Convert history entries to ChatMessage format
+        // History is newest-first, so reverse for chronological order
+        const historyMessages: ChatMessage[] = [];
+        const reversedEntries = [...history.entries].reverse();
+
+        reversedEntries.forEach((entry, i) => {
+          // Add user message
+          historyMessages.push({
+            id: `history-user-${i}`,
+            role: "user",
+            content: [{ type: "text" as const, text: entry.user_message }],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+          });
+
+          // Add assistant message
+          historyMessages.push({
+            id: `history-assistant-${i}`,
+            role: "assistant",
+            content: [
+              { type: "text" as const, text: entry.assistant_response },
+            ],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+          });
+        });
+
+        setMessages(historyMessages);
+      } catch (error) {
+        console.error("Error loading chat history:", error);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    }
+
+    loadHistory();
+  }, []);
 
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
@@ -177,6 +230,7 @@ export function useChatRuntime() {
     runtime,
     messages,
     isLoading,
+    isLoadingHistory,
     progressStatus,
     sendMessage,
     clearMessages: () => setMessages([]),

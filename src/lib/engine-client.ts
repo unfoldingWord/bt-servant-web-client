@@ -1,6 +1,7 @@
 import type {
   ChatRequest,
   ChatResponse,
+  ChatHistoryResponse,
   MessageType,
   UserPreferences,
 } from "@/types/engine";
@@ -92,6 +93,32 @@ export async function updateUserPreferences(
       body: JSON.stringify(preferences),
     }
   );
+
+  if (!response.ok) {
+    throw new Error(`Engine API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getChatHistory(
+  userId: string,
+  limit = 50,
+  offset = 0
+): Promise<ChatHistoryResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const response = await fetch(
+    `${ENGINE_BASE_URL}/api/v1/users/${userId}/history?${params}`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (response.status === 404) {
+    return { user_id: userId, entries: [], total_count: 0, limit, offset };
+  }
 
   if (!response.ok) {
     throw new Error(`Engine API error: ${response.status}`);
