@@ -63,7 +63,7 @@ export const Thread: FC = () => {
         <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web Client v1.0.1
+            BT Servant Web Client v1.0.2
           </p>
         </div>
       </AssistantIf>
