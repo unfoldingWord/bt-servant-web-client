@@ -96,7 +96,7 @@ const ThreadWelcome: FC = () => {
       <div className="flex w-full max-w-3xl flex-col items-center">
         {/* Welcome message */}
         <div className="mb-8">
-          <p className="text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
+          <p className="text-center text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
             Hello, I&apos;m BT Servant. How can I serve you today?
           </p>
         </div>
