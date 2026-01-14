@@ -63,7 +63,7 @@ export const Thread: FC = () => {
         <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.0.11
+            BT Servant Web v1.0.12
           </p>
         </div>
       </AssistantIf>
@@ -146,7 +146,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.0.11
+          BT Servant Web v1.0.12
         </p>
       </div>
     </div>
@@ -159,15 +159,8 @@ const Composer: FC = () => {
   const voiceRecorder = useVoiceRecorder();
 
   const handleVoiceComplete = async (audioBase64: string, format: string) => {
-    console.log(
-      "[Composer] handleVoiceComplete called, base64 length:",
-      audioBase64?.length,
-      "format:",
-      format
-    );
     setShowVoiceRecorder(false);
     await sendMessage("", audioBase64, format);
-    console.log("[Composer] sendMessage completed");
   };
 
   if (showVoiceRecorder) {
