@@ -32,13 +32,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  console.log(
-    "[chat/stream] Sending message for user:",
-    session.user.id,
-    "email:",
-    session.user.email
-  );
-
   // Parse request
   let parsed;
   try {
