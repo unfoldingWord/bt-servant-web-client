@@ -13,7 +13,9 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
 
+    console.log("[History API] Fetching history for user:", session.user.id);
     const history = await getChatHistory(session.user.id, limit, offset);
+    console.log("[History API] Got", history.entries.length, "entries");
 
     return NextResponse.json(history);
   } catch (error) {
