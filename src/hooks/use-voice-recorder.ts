@@ -44,43 +44,23 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
   }, []);
 
   const startRecording = useCallback(async () => {
-    console.log("[VoiceRecorder] startRecording called");
-
     if (!isSupported) {
       throw new Error("Voice recording not supported in this browser");
     }
 
     // Increment ID to invalidate any previous pending recordings
     const thisRecordingId = ++recordingIdRef.current;
-    console.log(
-      "[VoiceRecorder] Getting user media... (id:",
-      thisRecordingId,
-      ")"
-    );
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log(
-        "[VoiceRecorder] Got user media stream (id:",
-        thisRecordingId,
-        ")"
-      );
 
       // Check if this recording is still current (cancel might have incremented the ID)
       if (thisRecordingId !== recordingIdRef.current) {
-        console.log(
-          "[VoiceRecorder] Recording ID mismatch - stopping stream and aborting (expected:",
-          recordingIdRef.current,
-          "got:",
-          thisRecordingId,
-          ")"
-        );
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
 
       const mimeType = getMimeType();
-      console.log("[VoiceRecorder] Using mimeType:", mimeType);
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
@@ -92,11 +72,6 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
       };
 
       mediaRecorder.start(100); // Collect data every 100ms
-      console.log(
-        "[VoiceRecorder] Recording started (id:",
-        thisRecordingId,
-        ")"
-      );
       setIsRecording(true);
       setRecordingDuration(0);
 
@@ -105,7 +80,7 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
         setRecordingDuration((d) => d + 1);
       }, 1000);
     } catch (error) {
-      console.error("[VoiceRecorder] Failed to start recording:", error);
+      console.error("Failed to start recording:", error);
       throw error;
     }
   }, [isSupported, getMimeType]);
@@ -114,20 +89,12 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
     audioBase64: string;
     format: string;
   } | null> => {
-    console.log("[VoiceRecorder] stopRecording called");
-
     return new Promise((resolve) => {
       const mediaRecorder = mediaRecorderRef.current;
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
-        console.log("[VoiceRecorder] No active recorder - returning null");
         resolve(null);
         return;
       }
-
-      console.log(
-        "[VoiceRecorder] Chunks collected:",
-        chunksRef.current.length
-      );
 
       // Clear duration interval
       if (durationIntervalRef.current) {
@@ -136,29 +103,14 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
       }
 
       mediaRecorder.onstop = async () => {
-        console.log(
-          "[VoiceRecorder] MediaRecorder stopped, processing audio..."
-        );
         const mimeType = mediaRecorder.mimeType;
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        console.log(
-          "[VoiceRecorder] Blob size:",
-          blob.size,
-          "type:",
-          blob.type
-        );
 
         // Convert to base64
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64 = (reader.result as string).split(",")[1];
           const format = mimeType.includes("ogg") ? "ogg" : "webm";
-          console.log(
-            "[VoiceRecorder] Base64 length:",
-            base64?.length,
-            "format:",
-            format
-          );
 
           // Stop all tracks
           mediaRecorder.stream.getTracks().forEach((track) => track.stop());
@@ -174,14 +126,11 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
   }, []);
 
   const cancelRecording = useCallback(() => {
-    console.log("[VoiceRecorder] cancelRecording called");
-
     // Increment ID to invalidate any pending recordings
     recordingIdRef.current++;
 
     const mediaRecorder = mediaRecorderRef.current;
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
-      console.log("[VoiceRecorder] Stopping active recorder");
       mediaRecorder.stop();
       mediaRecorder.stream.getTracks().forEach((track) => track.stop());
     }
