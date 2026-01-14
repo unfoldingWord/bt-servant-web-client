@@ -123,11 +123,16 @@
   html,
   body {
     @apply h-full;
-    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Utility for preventing overscroll bounce while maintaining momentum scrolling */
+.overscroll-none {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Font Awesome FOUC prevention */
