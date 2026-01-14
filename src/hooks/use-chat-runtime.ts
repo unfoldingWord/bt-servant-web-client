@@ -4,7 +4,7 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { ChatResponse, ChatHistoryResponse } from "@/types/engine";
 import type { SSEEvent } from "@/lib/progress-store";
 
@@ -58,59 +58,48 @@ function createMessage(
 export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [progressStatus, setProgressStatus] = useState<string | null>(null);
+  const historyLoadedRef = useRef(false);
 
-  // Load chat history on mount
-  useEffect(() => {
-    async function loadHistory() {
-      try {
-        const response = await fetch("/api/chat/history");
-        if (!response.ok) {
-          console.error("Failed to load chat history");
-          return;
-        }
+  // Load chat history and convert to ChatMessage format
+  const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
+    try {
+      const response = await fetch("/api/chat/history");
+      if (!response.ok) {
+        console.error("Failed to load chat history");
+        return [];
+      }
 
-        const history: ChatHistoryResponse = await response.json();
+      const history: ChatHistoryResponse = await response.json();
 
-        // Convert history entries to ChatMessage format
-        // History is newest-first, so reverse for chronological order
-        const historyMessages: ChatMessage[] = [];
-        const reversedEntries = [...history.entries].reverse();
+      // Convert history entries to ChatMessage format
+      // History is newest-first, so reverse for chronological order
+      const historyMessages: ChatMessage[] = [];
+      const reversedEntries = [...history.entries].reverse();
 
-        reversedEntries.forEach((entry, i) => {
-          // Add user message
-          historyMessages.push({
-            id: `history-user-${i}`,
-            role: "user",
-            content: [{ type: "text" as const, text: entry.user_message }],
-            createdAt: entry.created_at
-              ? new Date(entry.created_at)
-              : new Date(),
-          });
-
-          // Add assistant message
-          historyMessages.push({
-            id: `history-assistant-${i}`,
-            role: "assistant",
-            content: [
-              { type: "text" as const, text: entry.assistant_response },
-            ],
-            createdAt: entry.created_at
-              ? new Date(entry.created_at)
-              : new Date(),
-          });
+      reversedEntries.forEach((entry, i) => {
+        // Add user message
+        historyMessages.push({
+          id: `history-user-${i}`,
+          role: "user",
+          content: [{ type: "text" as const, text: entry.user_message }],
+          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
         });
 
-        setMessages(historyMessages);
-      } catch (error) {
-        console.error("Error loading chat history:", error);
-      } finally {
-        setIsLoadingHistory(false);
-      }
-    }
+        // Add assistant message
+        historyMessages.push({
+          id: `history-assistant-${i}`,
+          role: "assistant",
+          content: [{ type: "text" as const, text: entry.assistant_response }],
+          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
+        });
+      });
 
-    loadHistory();
+      return historyMessages;
+    } catch (error) {
+      console.error("Error loading chat history:", error);
+      return [];
+    }
   }, []);
 
   // Define handlers before sendMessage so they can be in the dependency array
@@ -142,6 +131,15 @@ export function useChatRuntime() {
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
+      // Load history on first message if not already loaded
+      if (!historyLoadedRef.current) {
+        historyLoadedRef.current = true;
+        const historyMessages = await loadHistory();
+        if (historyMessages.length > 0) {
+          setMessages(historyMessages);
+        }
+      }
+
       // Add user message
       const userMessage = createMessage(
         `user-${Date.now()}`,
@@ -211,7 +209,7 @@ export function useChatRuntime() {
         handleError("Sorry, I encountered an error. Please try again.");
       }
     },
-    [handleComplete, handleError]
+    [handleComplete, handleError, loadHistory]
   );
 
   // Create assistant-ui runtime
@@ -230,7 +228,6 @@ export function useChatRuntime() {
     runtime,
     messages,
     isLoading,
-    isLoadingHistory,
     progressStatus,
     sendMessage,
     clearMessages: () => setMessages([]),
