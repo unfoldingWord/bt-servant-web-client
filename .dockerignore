@@ -1,0 +1,36 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Next.js
+.next
+out
+
+# Testing
+coverage
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Build files
+*.log
+
+# Environment files (secrets should be set via fly secrets)
+.env
+.env.*
+
+# Misc
+README.md
+.prettierrc
+.eslintrc*
