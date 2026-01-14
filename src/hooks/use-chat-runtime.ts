@@ -63,23 +63,13 @@ export function useChatRuntime() {
 
   // Load chat history and convert to ChatMessage format
   const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
-    console.log("[loadHistory] Starting history fetch...");
     try {
       const response = await fetch("/api/chat/history");
       if (!response.ok) {
-        console.error(
-          "[loadHistory] Failed to load chat history, status:",
-          response.status
-        );
         return [];
       }
 
       const history: ChatHistoryResponse = await response.json();
-      console.log(
-        "[loadHistory] Received history:",
-        history.entries.length,
-        "entries"
-      );
 
       // Convert history entries to ChatMessage format
       // History is newest-first, so reverse for chronological order
@@ -104,14 +94,8 @@ export function useChatRuntime() {
         });
       });
 
-      console.log(
-        "[loadHistory] Converted to",
-        historyMessages.length,
-        "ChatMessages"
-      );
       return historyMessages;
-    } catch (error) {
-      console.error("[loadHistory] Error loading chat history:", error);
+    } catch {
       return [];
     }
   }, []);
@@ -145,23 +129,11 @@ export function useChatRuntime() {
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
-      console.log(
-        "[sendMessage] Called, historyLoadedRef:",
-        historyLoadedRef.current
-      );
-
       // Load history on first message if not already loaded
       if (!historyLoadedRef.current) {
-        console.log("[sendMessage] First message - loading history...");
         historyLoadedRef.current = true;
         const historyMessages = await loadHistory();
-        console.log(
-          "[sendMessage] Got",
-          historyMessages.length,
-          "history messages"
-        );
         if (historyMessages.length > 0) {
-          console.log("[sendMessage] Setting messages to history");
           setMessages(historyMessages);
         }
       }
