@@ -10,8 +10,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   callbacks: {
     jwt({ token, user }) {
       // Add user info to token on sign-in
+      // Always use email as the user ID for consistency across auth providers
       if (user) {
-        token.id = user.id;
+        token.id = user.email; // Use email, not provider ID
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
