@@ -53,7 +53,7 @@ export const Thread: FC = () => {
 
       {/* After first message: messages with sticky composer */}
       <AssistantIf condition={({ thread }) => !thread.isEmpty}>
-        <ThreadPrimitive.Viewport className="flex grow flex-col overflow-y-auto px-4 pt-8">
+        <ThreadPrimitive.Viewport className="flex grow flex-col overflow-y-auto overscroll-none px-4 pt-8">
           <ThreadPrimitive.Messages components={{ Message: ChatMessage }} />
           <LoadingIndicator />
           <div aria-hidden="true" className="min-h-8" />
@@ -107,6 +107,9 @@ const ThreadWelcome: FC = () => {
         {/* Centered composer */}
         <div className="w-full">
           <Composer />
+          <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
+            BT Servant Web Client v1.0.2
+          </p>
         </div>
 
         {/* Suggestions */}
