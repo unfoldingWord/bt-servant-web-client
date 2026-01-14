@@ -23,7 +23,6 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // Expose token data in session
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.image = token.picture as string | undefined;
       }
       return session;
     },
