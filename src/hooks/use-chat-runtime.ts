@@ -65,18 +65,13 @@ export function useChatRuntime() {
   useEffect(() => {
     async function loadHistory() {
       try {
-        console.log("[History] Fetching chat history...");
         const response = await fetch("/api/chat/history");
         if (!response.ok) {
-          console.error(
-            "[History] Failed to load chat history:",
-            response.status
-          );
+          console.error("Failed to load chat history");
           return;
         }
 
         const history: ChatHistoryResponse = await response.json();
-        console.log("[History] Loaded:", history.total_count, "entries");
 
         // Convert history entries to ChatMessage format
         // History is newest-first, so reverse for chronological order
