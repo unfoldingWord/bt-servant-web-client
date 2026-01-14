@@ -63,7 +63,7 @@ export const Thread: FC = () => {
         <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web Client v1.0.2
+            BT Servant Web Client v1.0.3
           </p>
         </div>
       </AssistantIf>
@@ -94,54 +94,60 @@ const SUGGESTIONS = [
 
 const ThreadWelcome: FC = () => {
   return (
-    // pb-14 offsets for header height so content appears centered on full viewport
-    <div className="flex flex-1 flex-col items-center justify-center px-4 pb-14">
-      <div className="flex w-full max-w-3xl flex-col items-center">
-        {/* Welcome message */}
-        <div className="mb-8">
-          <p className="text-center text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
-            Hello, I&apos;m BT Servant. How can I serve you today?
-          </p>
-        </div>
+    <div className="flex flex-1 flex-col">
+      {/* Centered content area */}
+      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-14">
+        <div className="flex w-full max-w-3xl flex-col items-center">
+          {/* Welcome message */}
+          <div className="mb-8">
+            <p className="text-center text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
+              Hello, I&apos;m BT Servant. How can I serve you today?
+            </p>
+          </div>
 
-        {/* Centered composer */}
-        <div className="w-full">
-          <Composer />
-          <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web Client v1.0.2
-          </p>
-        </div>
+          {/* Centered composer */}
+          <div className="w-full">
+            <Composer />
+          </div>
 
-        {/* Suggestions */}
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {SUGGESTIONS.map((suggestion, index) => (
-            <div
-              key={suggestion.prompt}
-              className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-200"
-              style={{ animationDelay: `${100 + index * 50}ms` }}
-            >
-              <ThreadPrimitive.Suggestion
-                prompt={suggestion.prompt}
-                send
-                asChild
+          {/* Suggestions */}
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {SUGGESTIONS.map((suggestion, index) => (
+              <div
+                key={suggestion.prompt}
+                className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-200"
+                style={{ animationDelay: `${100 + index * 50}ms` }}
               >
-                <Button
-                  variant="outline"
-                  className="h-auto gap-2 rounded-lg border-[#00000015] bg-transparent px-4 py-2 font-sans hover:bg-[#f5f5f0] active:scale-[0.98] dark:border-[#6c6a6040] dark:bg-transparent dark:hover:bg-[#393937]"
+                <ThreadPrimitive.Suggestion
+                  prompt={suggestion.prompt}
+                  send
+                  asChild
                 >
-                  <FontAwesomeIcon
-                    icon={suggestion.icon}
-                    className="h-4 w-4"
-                    style={{ color: suggestion.iconColor }}
-                  />
-                  <span className="text-[#1a1a18] dark:text-[#eee]">
-                    {suggestion.label}
-                  </span>
-                </Button>
-              </ThreadPrimitive.Suggestion>
-            </div>
-          ))}
+                  <Button
+                    variant="outline"
+                    className="h-auto gap-2 rounded-lg border-[#00000015] bg-transparent px-4 py-2 font-sans hover:bg-[#f5f5f0] active:scale-[0.98] dark:border-[#6c6a6040] dark:bg-transparent dark:hover:bg-[#393937]"
+                  >
+                    <FontAwesomeIcon
+                      icon={suggestion.icon}
+                      className="h-4 w-4"
+                      style={{ color: suggestion.iconColor }}
+                    />
+                    <span className="text-[#1a1a18] dark:text-[#eee]">
+                      {suggestion.label}
+                    </span>
+                  </Button>
+                </ThreadPrimitive.Suggestion>
+              </div>
+            ))}
+          </div>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 pb-4">
+        <p className="text-center font-sans text-xs text-[#9a9893]">
+          BT Servant Web Client v1.0.3
+        </p>
       </div>
     </div>
   );
