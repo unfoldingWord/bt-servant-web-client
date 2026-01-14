@@ -42,8 +42,8 @@ export default function LoginPage() {
             >
               <FontAwesomeIcon icon={faBookBible} />
             </span>
-            <span className="text-lg font-semibold text-[#1a1a18] dark:text-[#eee]">
-              BT Servant Web
+            <span className="font-sans text-sm font-medium text-[#6b6a68] dark:text-[#9a9893]">
+              BTS Web
             </span>
           </div>
         </div>
@@ -135,7 +135,7 @@ export default function LoginPage() {
 
             {/* Footer */}
             <p className="mt-3 text-center font-sans text-[10px] text-[#8a8985] dark:text-[#6b6a68]">
-              BT Servant Web v1.0.0
+              BT Servant Web Client v1.0.9
             </p>
           </div>
         </div>
