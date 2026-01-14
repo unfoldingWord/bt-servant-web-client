@@ -39,6 +39,7 @@ export default async function ChatPage() {
           </div>
           <UserMenu
             userInitial={session?.user?.name?.[0]?.toUpperCase() || "U"}
+            userImage={session?.user?.image}
             onSignOut={handleSignOut}
           />
         </header>
