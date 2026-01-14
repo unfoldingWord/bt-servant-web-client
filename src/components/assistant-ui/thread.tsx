@@ -60,7 +60,7 @@ export const Thread: FC = () => {
         </ThreadPrimitive.Viewport>
 
         {/* Sticky composer outside viewport */}
-        <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-4">
+        <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
           <Composer />
         </div>
       </AssistantIf>
