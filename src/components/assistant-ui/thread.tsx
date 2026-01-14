@@ -83,7 +83,7 @@ const SUGGESTIONS = [
     iconColor: "#7d6b5a", // warm brown
   },
   {
-    label: "Tell me about Amos in the Bible",
+    label: "Tell me about Amos",
     prompt: "Tell me about Amos in the Bible",
     icon: faCircleInfo,
     iconColor: "#5a7d6b", // sage green
@@ -112,7 +112,7 @@ const ThreadWelcome: FC = () => {
           >
             <FontAwesomeIcon icon={faBookBible} />
           </span>
-          <p className="text-2xl text-[#1a1a18] dark:text-[#eee]">
+          <p className="text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
             Hello, I&apos;m BT Servant. How can I serve you today?
           </p>
         </div>
