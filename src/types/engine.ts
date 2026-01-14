@@ -34,3 +34,17 @@ export interface UserPreferences {
   agentic_strength?: "normal" | "low" | "very_low";
   dev_agentic_mcp?: boolean;
 }
+
+export interface ChatHistoryEntry {
+  user_message: string;
+  assistant_response: string;
+  created_at: string | null;
+}
+
+export interface ChatHistoryResponse {
+  user_id: string;
+  entries: ChatHistoryEntry[];
+  total_count: number;
+  limit: number;
+  offset: number;
+}
