@@ -15,7 +15,7 @@ export default async function ChatPage() {
 
   return (
     <AssistantProvider>
-      <div className="flex h-dvh flex-col bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
+      <div className="flex h-dvh flex-col overscroll-none bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
         <header className="flex items-center justify-between bg-transparent px-4 py-3">
           <span
             className="flex items-center justify-center"
