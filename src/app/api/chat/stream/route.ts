@@ -32,13 +32,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  console.log(
-    "[DEBUG] user.id:",
-    session.user.id,
-    "user.email:",
-    session.user.email
-  );
-
   // Parse request
   let parsed;
   try {
