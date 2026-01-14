@@ -17,7 +17,6 @@ import {
 import { ArrowUpIcon, ClipboardIcon } from "@radix-ui/react-icons";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 import {
   faLanguage,
   faListUl,
@@ -93,24 +92,7 @@ const SUGGESTIONS = [
 const ThreadWelcome: FC = () => {
   return (
     // pb-14 offsets for header height so content appears centered on full viewport
-    <div className="relative flex flex-1 flex-col items-center justify-center px-4 pb-14">
-      {/* Bible icon - top left */}
-      <span
-        className="absolute top-4 left-4 flex items-center justify-center"
-        style={
-          {
-            fontSize: "1.75rem",
-            lineHeight: 1,
-            "--fa-primary-color": "#ffffff",
-            "--fa-primary-opacity": "1",
-            "--fa-secondary-color": "#ae5630",
-            "--fa-secondary-opacity": "1",
-          } as React.CSSProperties
-        }
-      >
-        <FontAwesomeIcon icon={faBookBible} />
-      </span>
-
+    <div className="flex flex-1 flex-col items-center justify-center px-4 pb-14">
       <div className="flex w-full max-w-3xl flex-col items-center">
         {/* Welcome message */}
         <div className="mb-8">
