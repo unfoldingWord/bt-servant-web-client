@@ -45,7 +45,7 @@ const LoadingIndicator: FC = () => {
 
 export const Thread: FC = () => {
   return (
-    <ThreadPrimitive.Root className="flex h-full flex-col items-stretch bg-transparent font-serif">
+    <ThreadPrimitive.Root className="flex h-full flex-col items-stretch overscroll-none bg-transparent font-serif">
       {/* Empty state: centered welcome with composer */}
       <ThreadPrimitive.Empty>
         <ThreadWelcome />
