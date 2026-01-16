@@ -3,6 +3,8 @@ import { sendChatMessage } from "@/lib/engine-client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+// Allow up to 2 minutes for AI processing
+export const maxDuration = 120;
 const ChatRequestSchema = z.object({
   message: z.string(),
   message_type: z.enum(["text", "audio"]).default("text"),
