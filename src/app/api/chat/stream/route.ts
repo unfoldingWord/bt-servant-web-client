@@ -9,6 +9,8 @@ import {
 } from "@/lib/progress-store";
 import { NextRequest } from "next/server";
 import { z } from "zod";
+// Allow up to 2 minutes for AI processing
+export const maxDuration = 120;
 
 const PUBLIC_URL = process.env.PUBLIC_URL;
 const PROGRESS_THROTTLE_SECONDS = parseFloat(
