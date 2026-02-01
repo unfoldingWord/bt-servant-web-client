@@ -13,15 +13,15 @@ A modern web client for BT Servant, providing a conversational interface to cura
 ## Architecture
 
 ```
-Browser <---> Next.js BFF <---> bt-servant-engine
-             (API routes)       (AI backend)
+Browser <---> Next.js BFF <---> bt-servant-worker
+             (API routes)       (Cloudflare Worker)
 ```
 
 The web client follows a "thin gateway" pattern:
 
-- All AI logic lives in the bt-servant-engine
+- All AI logic lives in the bt-servant-worker (Cloudflare Worker backend)
 - Next.js acts as a Backend-for-Frontend (BFF), proxying requests with authentication
-- Real-time progress updates via Server-Sent Events (SSE) with webhook callbacks
+- Real-time progress updates via direct Server-Sent Events (SSE) streaming
 
 ## Tech Stack
 
@@ -41,9 +41,8 @@ src/
 │   ├── (protected)/chat/      # Main chat interface
 │   └── api/
 │       ├── auth/[...nextauth]/ # NextAuth handlers
-│       ├── chat/stream/       # SSE streaming endpoint
-│       ├── preferences/       # User preferences
-│       └── progress-callback/ # Webhook for progress updates
+│       ├── chat/stream/       # SSE streaming proxy to backend
+│       └── preferences/       # User preferences
 ├── auth.ts                    # NextAuth configuration
 ├── auth.config.ts             # Auth providers (Google, Email)
 ├── components/
@@ -56,8 +55,7 @@ src/
 │   ├── use-voice-recorder.ts  # MediaRecorder API wrapper
 │   └── use-audio-player.ts    # Audio playback hook
 ├── lib/
-│   ├── engine-client.ts       # HTTP client for bt-servant-engine
-│   └── progress-store.ts      # SSE event handling
+│   └── engine-client.ts       # HTTP client for bt-servant-worker
 └── types/
     └── engine.ts              # API type definitions
 ```
@@ -67,7 +65,7 @@ src/
 ### Prerequisites
 
 - Node.js 20+
-- A running instance of [bt-servant-engine](https://github.com/unfoldingWord/bt-servant-engine)
+- A running instance of bt-servant-worker (Cloudflare Worker backend)
 - Google OAuth credentials (for Google sign-in)
 
 ### Installation
@@ -102,14 +100,10 @@ src/
    GOOGLE_CLIENT_ID=<your-google-client-id>
    GOOGLE_CLIENT_SECRET=<your-google-client-secret>
 
-   # Engine
-   ENGINE_BASE_URL=http://localhost:8000
-   ENGINE_API_KEY=<your-engine-api-key>
+   # Backend (bt-servant-worker)
+   ENGINE_BASE_URL=http://localhost:8787  # Local worker, or https://your-worker.workers.dev
+   ENGINE_API_KEY=<your-worker-api-key>   # Must match worker's ENGINE_API_KEY
    CLIENT_ID=web
-
-   # Progress callbacks (optional)
-   PUBLIC_URL=http://localhost:3000
-   PROGRESS_THROTTLE_SECONDS=3.0
    ```
 
 5. Run the development server:

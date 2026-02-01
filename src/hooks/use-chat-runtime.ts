@@ -4,9 +4,8 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useState, useCallback, useRef } from "react";
-import type { ChatResponse, ChatHistoryResponse } from "@/types/engine";
-import type { SSEEvent } from "@/lib/progress-store";
+import { useState, useCallback, useRef, useMemo } from "react";
+import type { ChatResponse, ChatHistoryResponse, SSEEvent } from "@/types/engine";
 
 interface ChatMessage {
   id: string;
@@ -14,6 +13,7 @@ interface ChatMessage {
   content: Array<{ type: "text"; text: string }>;
   createdAt: Date;
   audioBase64?: string;
+  isStreaming?: boolean;
 }
 
 function toThreadMessage(message: ChatMessage): ThreadMessageLike {
@@ -25,6 +25,7 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
     metadata: {
       custom: {
         audioBase64: message.audioBase64,
+        isStreaming: message.isStreaming,
       },
     },
   };
@@ -33,7 +34,9 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
   if (message.role === "assistant") {
     return {
       ...base,
-      status: { type: "complete" as const, reason: "stop" as const },
+      status: message.isStreaming
+        ? { type: "running" as const }
+        : { type: "complete" as const, reason: "stop" as const },
     };
   }
 
@@ -44,7 +47,8 @@ function createMessage(
   id: string,
   role: "user" | "assistant",
   content: string,
-  audioBase64?: string
+  audioBase64?: string,
+  isStreaming?: boolean
 ): ChatMessage {
   return {
     id,
@@ -52,13 +56,15 @@ function createMessage(
     content: [{ type: "text" as const, text: content }],
     createdAt: new Date(),
     audioBase64,
+    isStreaming,
   };
 }
 
 export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [progressStatus, setProgressStatus] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState<string>("");
   const historyLoadedRef = useRef(false);
 
   // Load chat history and convert to ChatMessage format
@@ -115,7 +121,8 @@ export function useChatRuntime() {
 
     setMessages((prev) => [...prev, ...assistantMessages]);
     setIsLoading(false);
-    setProgressStatus(null);
+    setStatusMessage(null);
+    setStreamingText("");
   }, []);
 
   const handleError = useCallback((errorMessage: string) => {
@@ -124,7 +131,8 @@ export function useChatRuntime() {
       createMessage(`error-${Date.now()}`, "assistant", errorMessage),
     ]);
     setIsLoading(false);
-    setProgressStatus(null);
+    setStatusMessage(null);
+    setStreamingText("");
   }, []);
 
   const sendMessage = useCallback(
@@ -147,7 +155,8 @@ export function useChatRuntime() {
 
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
-      setProgressStatus(null);
+      setStatusMessage(null);
+      setStreamingText("");
 
       try {
         const response = await fetch("/api/chat/stream", {
@@ -189,13 +198,17 @@ export function useChatRuntime() {
               try {
                 const event: SSEEvent = JSON.parse(line.slice(6));
 
-                if (event.type === "progress") {
-                  setProgressStatus(event.text);
+                if (event.type === "status") {
+                  setStatusMessage(event.message);
+                } else if (event.type === "progress") {
+                  // Accumulate streaming text
+                  setStreamingText((prev) => prev + event.text);
                 } else if (event.type === "complete") {
                   handleComplete(event.response);
                 } else if (event.type === "error") {
                   handleError(event.error);
                 }
+                // Ignore tool_use and tool_result events for now
               } catch {
                 // Ignore parse errors
               }
@@ -210,9 +223,24 @@ export function useChatRuntime() {
     [handleComplete, handleError, loadHistory]
   );
 
+  // Combine messages with streaming message if present
+  const allMessages = useMemo(() => {
+    if (streamingText) {
+      const streamingMessage = createMessage(
+        "streaming",
+        "assistant",
+        streamingText,
+        undefined,
+        true
+      );
+      return [...messages, streamingMessage];
+    }
+    return messages;
+  }, [messages, streamingText]);
+
   // Create assistant-ui runtime
   const runtime = useExternalStoreRuntime({
-    messages: messages.map(toThreadMessage),
+    messages: allMessages.map(toThreadMessage),
     isRunning: isLoading,
     convertMessage: (message) => message,
     onNew: async (message) => {
@@ -224,9 +252,10 @@ export function useChatRuntime() {
 
   return {
     runtime,
-    messages,
+    messages: allMessages,
     isLoading,
-    progressStatus,
+    statusMessage,
+    streamingText,
     sendMessage,
     clearMessages: () => setMessages([]),
   };

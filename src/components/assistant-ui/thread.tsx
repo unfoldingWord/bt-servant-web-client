@@ -22,21 +22,24 @@ import {
   faListUl,
   faCircleInfo,
 } from "@fortawesome/pro-regular-svg-icons";
-import { useState, type FC } from "react";
+import { useState, useEffect, type FC } from "react";
+
+// Animation constants (like lasker-app)
+const CHARS_PER_TICK = 2;
+const TICK_MS = 16; // ~60fps
 
 const LoadingIndicator: FC = () => {
-  const { isLoading, progressStatus } = useChatContext();
+  const { isLoading, statusMessage, streamingText } = useChatContext();
 
-  if (!isLoading) return null;
+  // Only show loading indicator when loading and no streaming text yet
+  if (!isLoading || streamingText) return null;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-2">
       <div className="flex items-center gap-2 text-sm text-[#6b6a68] dark:text-[#9a9893]">
         <Loader2Icon className="size-4 animate-spin" />
         <span className="font-sans italic">
-          {progressStatus
-            ? progressStatus.replace(/^_|_$/g, "")
-            : "Thinking..."}
+          {statusMessage || "Thinking..."}
         </span>
       </div>
     </div>
@@ -249,46 +252,95 @@ const UserMessage: FC = () => {
   );
 };
 
+// Animated text hook for streaming - handles character-by-character reveal
+function useAnimatedText(text: string, isStreaming: boolean): string {
+  const [displayedLength, setDisplayedLength] = useState(text.length);
+
+  useEffect(() => {
+    // When streaming starts fresh (text is short), reset to 0
+    // When streaming ends (isStreaming becomes false), show full text
+    if (!isStreaming) {
+      // Not streaming - show full text (via animation frame to avoid sync setState)
+      const id = requestAnimationFrame(() => {
+        setDisplayedLength(text.length);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+
+    // Streaming - animate characters
+    if (displayedLength < text.length) {
+      const interval = setInterval(() => {
+        setDisplayedLength((prev) => Math.min(prev + CHARS_PER_TICK, text.length));
+      }, TICK_MS);
+      return () => clearInterval(interval);
+    }
+  }, [text.length, isStreaming, displayedLength]);
+
+  return text.slice(0, Math.min(displayedLength, text.length));
+}
+
+// Animated text component for streaming
+const AnimatedText: FC<{ text: string; isStreaming: boolean }> = ({
+  text,
+  isStreaming,
+}) => {
+  const displayedText = useAnimatedText(text, isStreaming);
+  return <span className="whitespace-pre-wrap">{displayedText}</span>;
+};
+
 const AssistantMessage: FC = () => {
   const audioBase64 = useAssistantState(
-    ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
+    ({ message }) =>
+      message.metadata?.custom?.audioBase64 as string | undefined
   );
+  const isStreaming = useAssistantState(
+    ({ message }) =>
+      (message.metadata?.custom?.isStreaming as boolean | undefined) ?? false
+  );
+  const messageText = useAssistantState(({ message }) => {
+    const firstPart = message.content[0];
+    return firstPart?.type === "text" ? firstPart.text : "";
+  });
 
   return (
-    <div className="relative mb-12 font-serif">
-      <div className="relative leading-[1.65rem]">
-        <div className="grid grid-cols-1 gap-2.5">
-          <div className="pr-8 pl-2 font-serif whitespace-normal text-[#1a1a18] dark:text-[#eee]">
-            <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
-          </div>
-        </div>
+    <div className="relative mb-8 pl-2">
+      {/* Clean text display - no bubble */}
+      <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
+        {isStreaming ? (
+          <AnimatedText text={messageText} isStreaming={isStreaming} />
+        ) : (
+          <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+        )}
       </div>
 
       {/* Audio player for voice responses */}
       {audioBase64 && (
-        <div className="mt-2 px-2">
+        <div className="mt-2">
           <AudioPlayer audioBase64={audioBase64} />
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0">
-        <ActionBarPrimitive.Root
-          hideWhenRunning
-          autohide="not-last"
-          className="pointer-events-auto flex w-full translate-y-full flex-col items-end px-2 pt-2 transition"
-        >
-          <div className="flex items-center text-[#6b6a68] dark:text-[#9a9893]">
-            <ActionBarPrimitive.Copy className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-              <ClipboardIcon width={20} height={20} />
-            </ActionBarPrimitive.Copy>
-          </div>
-          <AssistantIf condition={({ message }) => message.isLast}>
-            <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
-              BT Servant can make mistakes. Please double-check responses.
-            </p>
-          </AssistantIf>
-        </ActionBarPrimitive.Root>
-      </div>
+      {/* Action bar - only show when not streaming */}
+      {!isStreaming && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0">
+          <ActionBarPrimitive.Root
+            hideWhenRunning
+            autohide="not-last"
+            className="pointer-events-auto flex w-full translate-y-full flex-col items-end pt-2 transition"
+          >
+            <div className="flex items-center text-[#6b6a68] dark:text-[#9a9893]">
+              <ActionBarPrimitive.Copy className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
+                <ClipboardIcon width={20} height={20} />
+              </ActionBarPrimitive.Copy>
+            </div>
+            <AssistantIf condition={({ message }) => message.isLast}>
+              <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
+                BT Servant can make mistakes. Please double-check responses.
+              </p>
+            </AssistantIf>
+          </ActionBarPrimitive.Root>
+        </div>
+      )}
     </div>
   );
 };

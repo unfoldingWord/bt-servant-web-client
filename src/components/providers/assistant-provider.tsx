@@ -11,7 +11,8 @@ interface ChatContextValue {
     audioFormat?: string
   ) => Promise<void>;
   isLoading: boolean;
-  progressStatus: string | null;
+  statusMessage: string | null;
+  streamingText: string;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -24,10 +25,13 @@ export function useChatContext() {
 }
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
-  const { runtime, sendMessage, isLoading, progressStatus } = useChatRuntime();
+  const { runtime, sendMessage, isLoading, statusMessage, streamingText } =
+    useChatRuntime();
 
   return (
-    <ChatContext.Provider value={{ sendMessage, isLoading, progressStatus }}>
+    <ChatContext.Provider
+      value={{ sendMessage, isLoading, statusMessage, streamingText }}
+    >
       <AssistantRuntimeProvider runtime={runtime}>
         {children}
       </AssistantRuntimeProvider>

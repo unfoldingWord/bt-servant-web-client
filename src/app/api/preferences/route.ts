@@ -5,8 +5,6 @@ import { z } from "zod";
 
 const PreferencesSchema = z.object({
   response_language: z.string().optional(),
-  agentic_strength: z.enum(["normal", "low", "very_low"]).optional(),
-  dev_agentic_mcp: z.boolean().optional(),
 });
 
 export async function GET() {
