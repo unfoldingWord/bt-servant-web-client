@@ -5,7 +5,11 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo } from "react";
-import type { ChatResponse, ChatHistoryResponse, SSEEvent } from "@/types/engine";
+import type {
+  ChatResponse,
+  ChatHistoryResponse,
+  SSEEvent,
+} from "@/types/engine";
 
 interface ChatMessage {
   id: string;

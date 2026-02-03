@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
   if (!response.ok) {
     const errorText = await response.text();
     return new Response(
-      JSON.stringify({ error: `Backend error: ${response.status} - ${errorText}` }),
+      JSON.stringify({
+        error: `Backend error: ${response.status} - ${errorText}`,
+      }),
       {
         status: response.status,
         headers: { "Content-Type": "application/json" },

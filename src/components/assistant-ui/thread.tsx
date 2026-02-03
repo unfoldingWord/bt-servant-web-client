@@ -270,7 +270,9 @@ function useAnimatedText(text: string, isStreaming: boolean): string {
     // Streaming - animate characters
     if (displayedLength < text.length) {
       const interval = setInterval(() => {
-        setDisplayedLength((prev) => Math.min(prev + CHARS_PER_TICK, text.length));
+        setDisplayedLength((prev) =>
+          Math.min(prev + CHARS_PER_TICK, text.length)
+        );
       }, TICK_MS);
       return () => clearInterval(interval);
     }
@@ -290,8 +292,7 @@ const AnimatedText: FC<{ text: string; isStreaming: boolean }> = ({
 
 const AssistantMessage: FC = () => {
   const audioBase64 = useAssistantState(
-    ({ message }) =>
-      message.metadata?.custom?.audioBase64 as string | undefined
+    ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
   );
   const isStreaming = useAssistantState(
     ({ message }) =>
