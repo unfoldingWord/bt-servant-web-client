@@ -1,9 +1,10 @@
 import { auth } from "@/auth";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function proxy(req: NextRequest) {
-  const session = await auth();
-  const isLoggedIn = !!session;
+export const runtime = "experimental-edge";
+
+export default auth((req) => {
+  const isLoggedIn = !!req.auth;
   const pathname = req.nextUrl.pathname;
 
   // Protected routes
@@ -24,8 +25,8 @@ export async function proxy(req: NextRequest) {
   }
 
   return NextResponse.next();
-}
+});
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };
