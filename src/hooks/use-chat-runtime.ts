@@ -4,7 +4,7 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type {
   ChatResponse,
   ChatHistoryResponse,
@@ -110,20 +110,30 @@ export function useChatRuntime() {
     }
   }, []);
 
+  // Load history on mount
+  useEffect(() => {
+    if (!historyLoadedRef.current) {
+      historyLoadedRef.current = true;
+      loadHistory().then((historyMessages) => {
+        if (historyMessages.length > 0) {
+          setMessages(historyMessages);
+        }
+      });
+    }
+  }, [loadHistory]);
+
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
-    // Add assistant response(s)
-    const assistantMessages: ChatMessage[] = data.responses.map(
-      (responseText, i) =>
-        createMessage(
-          `assistant-${Date.now()}-${i}`,
-          "assistant",
-          responseText,
-          i === 0 ? data.voice_audio_base64 || undefined : undefined
-        )
+    // Join response segments with paragraph breaks
+    const joinedResponse = data.responses.join("\n\n");
+    const assistantMessage = createMessage(
+      `assistant-${Date.now()}`,
+      "assistant",
+      joinedResponse,
+      data.voice_audio_base64 || undefined
     );
 
-    setMessages((prev) => [...prev, ...assistantMessages]);
+    setMessages((prev) => [...prev, assistantMessage]);
     setIsLoading(false);
     setStatusMessage(null);
     setStreamingText("");
@@ -141,15 +151,6 @@ export function useChatRuntime() {
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
-      // Load history on first message if not already loaded
-      if (!historyLoadedRef.current) {
-        historyLoadedRef.current = true;
-        const historyMessages = await loadHistory();
-        if (historyMessages.length > 0) {
-          setMessages(historyMessages);
-        }
-      }
-
       // Add user message
       const userMessage = createMessage(
         `user-${Date.now()}`,
@@ -224,7 +225,7 @@ export function useChatRuntime() {
         handleError("Sorry, I encountered an error. Please try again.");
       }
     },
-    [handleComplete, handleError, loadHistory]
+    [handleComplete, handleError]
   );
 
   // Combine messages with streaming message if present

@@ -135,7 +135,7 @@ export default function LoginPage() {
 
             {/* Footer */}
             <p className="mt-3 text-center font-sans text-[10px] text-[#8a8985] dark:text-[#6b6a68]">
-              BT Servant Web v1.0.13
+              BT Servant Web v1.1.0
             </p>
           </div>
         </div>

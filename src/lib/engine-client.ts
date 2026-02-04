@@ -9,6 +9,7 @@ import type {
 const ENGINE_BASE_URL = process.env.ENGINE_BASE_URL!;
 const ENGINE_API_KEY = process.env.ENGINE_API_KEY!;
 const CLIENT_ID = process.env.CLIENT_ID || "web";
+const DEFAULT_ORG = process.env.DEFAULT_ORG || "unfoldingWord";
 const DEFAULT_TIMEOUT = 120000; // 2 minutes for AI processing
 
 function getAuthHeaders(): HeadersInit {
@@ -66,7 +67,7 @@ export async function getUserPreferences(
   userId: string
 ): Promise<UserPreferences> {
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/users/${userId}/preferences`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${DEFAULT_ORG}/users/${userId}/preferences`,
     { headers: getAuthHeaders() }
   );
 
@@ -86,7 +87,7 @@ export async function updateUserPreferences(
   preferences: Partial<UserPreferences>
 ): Promise<UserPreferences> {
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/users/${userId}/preferences`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${DEFAULT_ORG}/users/${userId}/preferences`,
     {
       method: "PUT",
       headers: getAuthHeaders(),
@@ -112,7 +113,7 @@ export async function getChatHistory(
   });
 
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/users/${userId}/history?${params}`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${DEFAULT_ORG}/users/${userId}/history?${params}`,
     { headers: getAuthHeaders() }
   );
 

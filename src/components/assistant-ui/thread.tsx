@@ -5,6 +5,7 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { AUDIO_ENABLED } from "@/lib/feature-flags";
 import { Button } from "@/components/ui/button";
 import {
   ActionBarPrimitive,
@@ -21,12 +22,31 @@ import {
   faLanguage,
   faListUl,
   faCircleInfo,
+  faArrowDown,
 } from "@fortawesome/pro-regular-svg-icons";
-import { useState, useEffect, type FC } from "react";
+import { useState, useEffect, useRef, useCallback, type FC } from "react";
 
 // Animation constants (like lasker-app)
 const CHARS_PER_TICK = 2;
 const TICK_MS = 16; // ~60fps
+
+const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
+  visible,
+  onClick,
+}) => {
+  if (!visible) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute bottom-full left-1/2 mb-3 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-orange-500 opacity-50 shadow-lg transition-opacity hover:opacity-65"
+      aria-label="Scroll to bottom"
+    >
+      <FontAwesomeIcon icon={faArrowDown} className="text-sm text-white" />
+    </button>
+  );
+};
 
 const LoadingIndicator: FC = () => {
   const { isLoading, statusMessage, streamingText } = useChatContext();
@@ -47,6 +67,25 @@ const LoadingIndicator: FC = () => {
 };
 
 export const Thread: FC = () => {
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  const SCROLL_THRESHOLD = 50;
+
+  const handleScroll = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const atBottom = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+    setIsAtBottom(atBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
   return (
     <ThreadPrimitive.Root className="flex h-full flex-col items-stretch overscroll-none bg-transparent font-serif">
       {/* Empty state: centered welcome with composer */}
@@ -56,17 +95,25 @@ export const Thread: FC = () => {
 
       {/* After first message: messages with sticky composer */}
       <AssistantIf condition={({ thread }) => !thread.isEmpty}>
-        <ThreadPrimitive.Viewport className="flex grow flex-col overflow-y-auto overscroll-none px-4 pt-8">
+        <ThreadPrimitive.Viewport
+          ref={viewportRef}
+          onScroll={handleScroll}
+          className="flex grow flex-col overflow-y-auto overscroll-none px-4 pt-8"
+        >
           <ThreadPrimitive.Messages components={{ Message: ChatMessage }} />
           <LoadingIndicator />
           <div aria-hidden="true" className="min-h-8" />
         </ThreadPrimitive.Viewport>
 
         {/* Sticky composer outside viewport */}
-        <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
+        <div className="relative mx-auto flex w-full max-w-3xl shrink-0 flex-col px-4 pb-4">
+          <ScrollToBottomButton
+            visible={!isAtBottom}
+            onClick={scrollToBottom}
+          />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.0.13
+            BT Servant Web v1.1.0
           </p>
         </div>
       </AssistantIf>
@@ -149,7 +196,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.0.13
+          BT Servant Web v1.1.0
         </p>
       </div>
     </div>
@@ -166,7 +213,7 @@ const Composer: FC = () => {
     await sendMessage("", audioBase64, format);
   };
 
-  if (showVoiceRecorder) {
+  if (AUDIO_ENABLED && showVoiceRecorder) {
     return (
       <div className="mx-auto w-full max-w-3xl">
         <VoiceRecorder
@@ -191,8 +238,8 @@ const Composer: FC = () => {
           </div>
           <div className="flex w-full items-center gap-2">
             <div className="relative flex min-w-0 flex-1 shrink items-center gap-2">
-              {/* Voice button */}
-              {voiceRecorder.isSupported && (
+              {/* Voice button - hidden when audio disabled */}
+              {AUDIO_ENABLED && voiceRecorder.isSupported && (
                 <button
                   type="button"
                   onClick={() => setShowVoiceRecorder(true)}
@@ -253,21 +300,25 @@ const UserMessage: FC = () => {
 };
 
 // Animated text hook for streaming - handles character-by-character reveal
-function useAnimatedText(text: string, isStreaming: boolean): string {
+function useAnimatedText(text: string): string {
   const [displayedLength, setDisplayedLength] = useState(text.length);
+  // Track previous text to detect resets
+  const [prevText, setPrevText] = useState(text);
+
+  // Detect text reset and update state together
+  if (text !== prevText) {
+    setPrevText(text);
+    // If text was cleared, reset displayed length
+    if (
+      text.length === 0 ||
+      (prevText.length > 0 && !text.startsWith(prevText))
+    ) {
+      setDisplayedLength(0);
+    }
+  }
 
   useEffect(() => {
-    // When streaming starts fresh (text is short), reset to 0
-    // When streaming ends (isStreaming becomes false), show full text
-    if (!isStreaming) {
-      // Not streaming - show full text (via animation frame to avoid sync setState)
-      const id = requestAnimationFrame(() => {
-        setDisplayedLength(text.length);
-      });
-      return () => cancelAnimationFrame(id);
-    }
-
-    // Streaming - animate characters
+    // Animate to catch up to text length
     if (displayedLength < text.length) {
       const interval = setInterval(() => {
         setDisplayedLength((prev) =>
@@ -276,17 +327,14 @@ function useAnimatedText(text: string, isStreaming: boolean): string {
       }, TICK_MS);
       return () => clearInterval(interval);
     }
-  }, [text.length, isStreaming, displayedLength]);
+  }, [text.length, displayedLength]);
 
   return text.slice(0, Math.min(displayedLength, text.length));
 }
 
 // Animated text component for streaming
-const AnimatedText: FC<{ text: string; isStreaming: boolean }> = ({
-  text,
-  isStreaming,
-}) => {
-  const displayedText = useAnimatedText(text, isStreaming);
+const AnimatedText: FC<{ text: string }> = ({ text }) => {
+  const displayedText = useAnimatedText(text);
   return <span className="whitespace-pre-wrap">{displayedText}</span>;
 };
 
@@ -308,14 +356,14 @@ const AssistantMessage: FC = () => {
       {/* Clean text display - no bubble */}
       <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
         {isStreaming ? (
-          <AnimatedText text={messageText} isStreaming={isStreaming} />
+          <AnimatedText text={messageText} />
         ) : (
           <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
         )}
       </div>
 
-      {/* Audio player for voice responses */}
-      {audioBase64 && (
+      {/* Audio player for voice responses - hidden when audio disabled */}
+      {AUDIO_ENABLED && audioBase64 && (
         <div className="mt-2">
           <AudioPlayer audioBase64={audioBase64} />
         </div>
