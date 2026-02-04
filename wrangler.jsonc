@@ -1,18 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
   "name": "bt-servant-web-client",
   "account_id": "5a3ffd86280d3ed086be76d955829242",
   "compatibility_date": "2024-12-30",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
-  },
-  "services": [
-    {
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "bt-servant-web-client"
-    }
-  ]
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next"
 }
