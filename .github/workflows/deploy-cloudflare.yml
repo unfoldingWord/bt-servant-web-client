@@ -2,7 +2,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
-    branches: [main, cloudflare-pages]
+    branches: [main]
 
 jobs:
   deploy:
