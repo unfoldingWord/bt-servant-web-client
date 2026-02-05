@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOutIcon } from "lucide-react";
+import { signOut } from "next-auth/react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,10 +11,12 @@ import {
 
 interface UserMenuProps {
   userInitial: string;
-  onSignOut: () => void;
 }
 
-export function UserMenu({ userInitial, onSignOut }: UserMenuProps) {
+export function UserMenu({ userInitial }: UserMenuProps) {
+  const handleSignOut = () => {
+    signOut({ callbackUrl: "/login" });
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -29,7 +32,7 @@ export function UserMenu({ userInitial, onSignOut }: UserMenuProps) {
         className="w-56 border-[#00000015] bg-white shadow-lg dark:border-[#6c6a6040] dark:bg-[#1f1e1b]"
       >
         <DropdownMenuItem
-          onClick={onSignOut}
+          onClick={handleSignOut}
           className="cursor-pointer text-[#1a1a18] focus:bg-[#f5f5f0] focus:text-[#1a1a18] dark:text-[#eee] dark:focus:bg-[#393937] dark:focus:text-[#eee]"
         >
           <LogOutIcon className="mr-3 h-4 w-4 text-[#6b6a68] dark:text-[#9a9893]" />

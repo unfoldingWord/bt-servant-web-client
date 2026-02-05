@@ -1,17 +1,12 @@
 import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { ClientThread } from "@/components/assistant-ui/client-thread";
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { UserMenu } from "@/components/user-menu";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
 export default async function ChatPage() {
   const session = await auth();
-
-  const handleSignOut = async () => {
-    "use server";
-    await signOut({ redirectTo: "/login" });
-  };
 
   return (
     <AssistantProvider>
@@ -39,7 +34,6 @@ export default async function ChatPage() {
           </div>
           <UserMenu
             userInitial={session?.user?.name?.[0]?.toUpperCase() || "U"}
-            onSignOut={handleSignOut}
           />
         </header>
         <main className="flex-1 overflow-hidden">
