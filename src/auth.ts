@@ -1,8 +1,25 @@
 import NextAuth from "next-auth";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import authConfig from "./auth.config";
 
-export const { auth, handlers, signIn, signOut } = NextAuth({
+// Get secret from Cloudflare env bindings
+const getSecret = () => {
+  try {
+    const { env } = getCloudflareContext();
+    return (
+      (env as Record<string, string>).AUTH_SECRET ||
+      process.env.AUTH_SECRET ||
+      process.env.NEXTAUTH_SECRET
+    );
+  } catch {
+    // Fallback for local development
+    return process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  }
+};
+
+export const { auth, handlers, signIn, signOut } = NextAuth(() => ({
   ...authConfig,
+  secret: getSecret(),
   session: {
     strategy: "jwt", // No database needed
     maxAge: 30 * 24 * 60 * 60, // 30 days
@@ -27,4 +44,4 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return session;
     },
   },
-});
+}));
