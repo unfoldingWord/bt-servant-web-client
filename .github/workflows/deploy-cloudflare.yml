@@ -21,6 +21,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Inject secrets into wrangler config
+        run: |
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('wrangler.jsonc', 'utf8');
+            // Remove comments for JSON parsing
+            const config = JSON.parse(content.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '\$1'));
+            config.vars = {
+              ...config.vars,
+              AUTH_SECRET: process.env.AUTH_SECRET,
+              ENGINE_API_KEY: process.env.ENGINE_API_KEY,
+              GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+              GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || ''
+            };
+            fs.writeFileSync('wrangler.jsonc', JSON.stringify(config, null, 2));
+          "
+        env:
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          ENGINE_API_KEY: ${{ secrets.ENGINE_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
       - name: Build for Cloudflare
         run: npx opennextjs-cloudflare build
 

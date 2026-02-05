@@ -10,10 +10,13 @@
   },
   "vars": {
     "AUTH_TRUST_HOST": "true",
-    "AUTH_SECRET": "***REDACTED_AUTH_SECRET***",
     "ENGINE_BASE_URL": "https://api.btservant.ai",
-    "ENGINE_API_KEY": "***REDACTED_ENGINE_API_KEY***",
     "CLIENT_ID": "web",
     "DEFAULT_ORG": "unfoldingWord"
   }
+  // Secrets injected at deploy time via GitHub Actions:
+  // - AUTH_SECRET
+  // - ENGINE_API_KEY
+  // - GOOGLE_CLIENT_ID
+  // - GOOGLE_CLIENT_SECRET
 }
