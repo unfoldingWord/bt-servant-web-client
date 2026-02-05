@@ -192,13 +192,12 @@ The project uses Husky and lint-staged for pre-commit checks:
 
 ## Deployment
 
-The app can be deployed to any platform that supports Next.js:
+The app is deployed to **Cloudflare Workers** via OpenNext.
 
-- Vercel (recommended)
-- Docker
-- Node.js server
+- **Production**: https://bt-servant-web-client.unfoldingword.workers.dev
+- **CI/CD**: GitHub Actions automatically deploys on push to `main`
 
-Ensure all environment variables are configured in your deployment environment.
+Secrets are managed via GitHub Secrets and injected at deploy time.
 
 ## Related Projects
 
