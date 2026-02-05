@@ -6,12 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   "vars": {
     "AUTH_TRUST_HOST": "true",
     "ENGINE_BASE_URL": "https://api.btservant.ai",
     "CLIENT_ID": "web",
-    "DEFAULT_ORG": "unfoldingWord"
-  }
+    "DEFAULT_ORG": "unfoldingWord",
+  },
 }
