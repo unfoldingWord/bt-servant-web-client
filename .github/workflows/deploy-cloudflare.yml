@@ -21,7 +21,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and Deploy to Cloudflare Workers
+      - name: Build for Cloudflare
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy to Cloudflare Workers
         run: npx opennextjs-cloudflare deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
