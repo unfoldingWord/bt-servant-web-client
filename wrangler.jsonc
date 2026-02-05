@@ -14,9 +14,4 @@
     "CLIENT_ID": "web",
     "DEFAULT_ORG": "unfoldingWord"
   }
-  // Secrets injected at deploy time via GitHub Actions:
-  // - AUTH_SECRET
-  // - ENGINE_API_KEY
-  // - GOOGLE_CLIENT_ID
-  // - GOOGLE_CLIENT_SECRET
 }

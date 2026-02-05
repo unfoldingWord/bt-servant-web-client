@@ -25,9 +25,7 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
-            let content = fs.readFileSync('wrangler.jsonc', 'utf8');
-            // Remove comments for JSON parsing
-            const config = JSON.parse(content.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '\$1'));
+            const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
             config.vars = {
               ...config.vars,
               AUTH_SECRET: process.env.AUTH_SECRET,
