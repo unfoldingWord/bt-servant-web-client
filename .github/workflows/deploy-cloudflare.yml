@@ -25,7 +25,10 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
-            const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+            // Strip trailing commas to convert JSONC to valid JSON
+            const jsonc = fs.readFileSync('wrangler.jsonc', 'utf8');
+            const json = jsonc.replace(/,(\s*[}\]])/g, '\$1');
+            const config = JSON.parse(json);
             config.vars = {
               ...config.vars,
               AUTH_SECRET: process.env.AUTH_SECRET,
