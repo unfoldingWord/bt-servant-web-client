@@ -82,11 +82,9 @@ export function useChatRuntime() {
       const history: ChatHistoryResponse = await response.json();
 
       // Convert history entries to ChatMessage format
-      // History is newest-first, so reverse for chronological order
       const historyMessages: ChatMessage[] = [];
-      const reversedEntries = [...history.entries].reverse();
 
-      reversedEntries.forEach((entry, i) => {
+      history.entries.forEach((entry, i) => {
         // Add user message
         historyMessages.push({
           id: `history-user-${i}`,
