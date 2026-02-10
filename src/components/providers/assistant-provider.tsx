@@ -13,6 +13,7 @@ interface ChatContextValue {
   isLoading: boolean;
   statusMessage: string | null;
   streamingText: string;
+  finalizeComplete: () => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -25,12 +26,24 @@ export function useChatContext() {
 }
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
-  const { runtime, sendMessage, isLoading, statusMessage, streamingText } =
-    useChatRuntime();
+  const {
+    runtime,
+    sendMessage,
+    isLoading,
+    statusMessage,
+    streamingText,
+    finalizeComplete,
+  } = useChatRuntime();
 
   return (
     <ChatContext.Provider
-      value={{ sendMessage, isLoading, statusMessage, streamingText }}
+      value={{
+        sendMessage,
+        isLoading,
+        statusMessage,
+        streamingText,
+        finalizeComplete,
+      }}
     >
       <AssistantRuntimeProvider runtime={runtime}>
         {children}

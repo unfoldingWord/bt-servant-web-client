@@ -70,6 +70,11 @@ export function useChatRuntime() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
   const historyLoadedRef = useRef(false);
+  const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
+  const streamingTextRef = useRef(streamingText);
+  useEffect(() => {
+    streamingTextRef.current = streamingText;
+  }, [streamingText]);
 
   // Load chat history and convert to ChatMessage format
   const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
@@ -120,9 +125,34 @@ export function useChatRuntime() {
     }
   }, [loadHistory]);
 
+  // Finalize a pending completion — called by AnimatedText when animation catches up
+  const finalizeComplete = useCallback(() => {
+    const pending = pendingCompleteRef.current;
+    if (!pending) return;
+
+    pendingCompleteRef.current = null;
+    setMessages((prev) => [...prev, pending.message]);
+    setIsLoading(false);
+    setStatusMessage(null);
+    setStreamingText("");
+  }, []);
+
+  // Safety valve: if animation callback never fires (e.g. component unmount),
+  // force-finalize after a short delay to prevent stuck state
+  useEffect(() => {
+    if (!pendingCompleteRef.current) return;
+
+    const timeout = setTimeout(() => {
+      if (pendingCompleteRef.current) {
+        finalizeComplete();
+      }
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [streamingText, finalizeComplete]);
+
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
-    // Join response segments with paragraph breaks
     const joinedResponse = data.responses.join("\n\n");
     const assistantMessage = createMessage(
       `assistant-${Date.now()}`,
@@ -131,13 +161,26 @@ export function useChatRuntime() {
       data.voice_audio_base64 || undefined
     );
 
-    setMessages((prev) => [...prev, assistantMessage]);
-    setIsLoading(false);
+    const currentStreaming = streamingTextRef.current;
+
+    // If no streaming text was accumulated, or complete text diverges from
+    // what was streamed, swap immediately (no animation to wait for)
+    if (!currentStreaming || !joinedResponse.startsWith(currentStreaming)) {
+      setMessages((prev) => [...prev, assistantMessage]);
+      setIsLoading(false);
+      setStatusMessage(null);
+      setStreamingText("");
+      return;
+    }
+
+    // Defer swap: store pending data and set full text so animation finishes
+    pendingCompleteRef.current = { message: assistantMessage };
+    setStreamingText(joinedResponse);
     setStatusMessage(null);
-    setStreamingText("");
   }, []);
 
   const handleError = useCallback((errorMessage: string) => {
+    pendingCompleteRef.current = null;
     setMessages((prev) => [
       ...prev,
       createMessage(`error-${Date.now()}`, "assistant", errorMessage),
@@ -149,6 +192,13 @@ export function useChatRuntime() {
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
+      // Force-finalize any pending completion so the message is preserved
+      if (pendingCompleteRef.current) {
+        const pending = pendingCompleteRef.current;
+        pendingCompleteRef.current = null;
+        setMessages((prev) => [...prev, pending.message]);
+      }
+
       // Add user message
       const userMessage = createMessage(
         `user-${Date.now()}`,
@@ -261,5 +311,6 @@ export function useChatRuntime() {
     streamingText,
     sendMessage,
     clearMessages: () => setMessages([]),
+    finalizeComplete,
   };
 }
