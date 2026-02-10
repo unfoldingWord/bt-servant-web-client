@@ -113,7 +113,7 @@ export const Thread: FC = () => {
           />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.1.1
+            BT Servant Web v1.1.2
           </p>
         </div>
       </AssistantIf>
@@ -196,7 +196,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.1.1
+          BT Servant Web v1.1.2
         </p>
       </div>
     </div>
@@ -300,14 +300,10 @@ const UserMessage: FC = () => {
 };
 
 // Animated text hook for streaming - handles character-by-character reveal
-function useAnimatedText(text: string, onComplete?: () => void): string {
+function useAnimatedText(text: string): [string, boolean] {
   const [displayedLength, setDisplayedLength] = useState(text.length);
   // Track previous text to detect resets
   const [prevText, setPrevText] = useState(text);
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
 
   // Detect text reset and update state together
   if (text !== prevText) {
@@ -333,27 +329,42 @@ function useAnimatedText(text: string, onComplete?: () => void): string {
     }
   }, [text.length, displayedLength]);
 
-  // Fire onComplete when animation catches up to the full text
-  useEffect(() => {
-    if (displayedLength >= text.length && text.length > 0) {
-      onCompleteRef.current?.();
-    }
-  }, [displayedLength, text.length]);
-
-  return text.slice(0, Math.min(displayedLength, text.length));
+  const isAnimationDone = displayedLength >= text.length;
+  return [
+    text.slice(0, Math.min(displayedLength, text.length)),
+    isAnimationDone,
+  ];
 }
 
 // Animated text component for streaming
-const AnimatedText: FC<{ text: string; onComplete?: () => void }> = ({
-  text,
-  onComplete,
-}) => {
-  const displayedText = useAnimatedText(text, onComplete);
+const AnimatedText: FC<{
+  text: string;
+  isCompleting: boolean;
+  onAnimationCaughtUp: () => void;
+}> = ({ text, isCompleting, onAnimationCaughtUp }) => {
+  const [displayedText, isAnimationDone] = useAnimatedText(text);
+  const calledRef = useRef(false);
+
+  // Reset the called flag when isCompleting transitions to true
+  useEffect(() => {
+    if (isCompleting) {
+      calledRef.current = false;
+    }
+  }, [isCompleting]);
+
+  // Fire callback when completing AND animation has caught up
+  useEffect(() => {
+    if (isCompleting && isAnimationDone && !calledRef.current) {
+      calledRef.current = true;
+      onAnimationCaughtUp();
+    }
+  }, [isCompleting, isAnimationDone, onAnimationCaughtUp]);
+
   return <span className="whitespace-pre-wrap">{displayedText}</span>;
 };
 
 const AssistantMessage: FC = () => {
-  const { finalizeComplete } = useChatContext();
+  const { finalizeComplete, isCompleting } = useChatContext();
   const audioBase64 = useAssistantState(
     ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
   );
@@ -366,7 +377,7 @@ const AssistantMessage: FC = () => {
     return firstPart?.type === "text" ? firstPart.text : "";
   });
 
-  const handleAnimationComplete = useCallback(() => {
+  const handleAnimationCaughtUp = useCallback(() => {
     finalizeComplete();
   }, [finalizeComplete]);
 
@@ -377,7 +388,8 @@ const AssistantMessage: FC = () => {
         {isStreaming ? (
           <AnimatedText
             text={messageText}
-            onComplete={handleAnimationComplete}
+            isCompleting={isCompleting}
+            onAnimationCaughtUp={handleAnimationCaughtUp}
           />
         ) : (
           <MessagePrimitive.Parts components={{ Text: MarkdownText }} />

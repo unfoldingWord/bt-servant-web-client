@@ -71,6 +71,7 @@ export function useChatRuntime() {
   const [streamingText, setStreamingText] = useState<string>("");
   const historyLoadedRef = useRef(false);
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
   useEffect(() => {
     streamingTextRef.current = streamingText;
@@ -131,25 +132,12 @@ export function useChatRuntime() {
     if (!pending) return;
 
     pendingCompleteRef.current = null;
+    setIsCompleting(false);
     setMessages((prev) => [...prev, pending.message]);
     setIsLoading(false);
     setStatusMessage(null);
     setStreamingText("");
   }, []);
-
-  // Safety valve: if animation callback never fires (e.g. component unmount),
-  // force-finalize after a short delay to prevent stuck state
-  useEffect(() => {
-    if (!pendingCompleteRef.current) return;
-
-    const timeout = setTimeout(() => {
-      if (pendingCompleteRef.current) {
-        finalizeComplete();
-      }
-    }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [streamingText, finalizeComplete]);
 
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
@@ -175,12 +163,14 @@ export function useChatRuntime() {
 
     // Defer swap: store pending data and set full text so animation finishes
     pendingCompleteRef.current = { message: assistantMessage };
+    setIsCompleting(true);
     setStreamingText(joinedResponse);
     setStatusMessage(null);
   }, []);
 
   const handleError = useCallback((errorMessage: string) => {
     pendingCompleteRef.current = null;
+    setIsCompleting(false);
     setMessages((prev) => [
       ...prev,
       createMessage(`error-${Date.now()}`, "assistant", errorMessage),
@@ -196,6 +186,7 @@ export function useChatRuntime() {
       if (pendingCompleteRef.current) {
         const pending = pendingCompleteRef.current;
         pendingCompleteRef.current = null;
+        setIsCompleting(false);
         setMessages((prev) => [...prev, pending.message]);
       }
 
@@ -312,5 +303,6 @@ export function useChatRuntime() {
     sendMessage,
     clearMessages: () => setMessages([]),
     finalizeComplete,
+    isCompleting,
   };
 }
