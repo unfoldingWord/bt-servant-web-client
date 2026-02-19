@@ -13,5 +13,6 @@
     "ENGINE_BASE_URL": "https://api.btservant.ai",
     "CLIENT_ID": "web",
     "DEFAULT_ORG": "unfoldingWord",
+    "BROKER_BASE_URL": "https://bt-servant-message-broker.fly.dev",
   },
 }
