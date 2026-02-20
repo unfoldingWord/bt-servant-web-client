@@ -39,7 +39,7 @@ export interface ChatHistoryResponse {
 
 export interface EnqueueRequest {
   user_id: string;
-  org_id: string;
+  org: string;
   message: string;
   message_type: MessageType;
   client_id: string;
@@ -48,8 +48,8 @@ export interface EnqueueRequest {
 }
 
 export interface EnqueueResponse {
-  status: "queued";
   message_id: string;
+  queue_position: number;
 }
 
 // SSE event types for streaming endpoint (matching backend)

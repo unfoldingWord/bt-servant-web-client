@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         user_id: session.user.id,
-        org_id: DEFAULT_ORG,
+        org: DEFAULT_ORG,
         message: parsed.message,
         message_type: parsed.message_type,
         client_id: CLIENT_ID,
