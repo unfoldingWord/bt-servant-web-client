@@ -14,4 +14,15 @@
     "CLIENT_ID": "web",
     "DEFAULT_ORG": "unfoldingWord",
   },
+  "env": {
+    "staging": {
+      "name": "bt-servant-web-client-staging",
+      "vars": {
+        "AUTH_TRUST_HOST": "true",
+        "ENGINE_BASE_URL": "https://bt-servant-worker-staging.unfoldingword.workers.dev",
+        "CLIENT_ID": "web",
+        "DEFAULT_ORG": "unfoldingWord",
+      },
+    },
+  },
 }
