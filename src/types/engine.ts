@@ -37,6 +37,22 @@ export interface ChatHistoryResponse {
   offset: number;
 }
 
+// Broker API types
+export interface BrokerEnqueueRequest {
+  user_id: string;
+  org_id: string;
+  message: string;
+  message_type: MessageType;
+  client_id: string;
+  audio_base64?: string;
+  audio_format?: string;
+}
+
+export interface BrokerEnqueueResponse {
+  status: "queued";
+  message_id: string;
+}
+
 // SSE event types for streaming endpoint (matching backend)
 export type SSEEvent =
   | { type: "status"; message: string }
