@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
   let streamResponse: Response;
   try {
     streamResponse = await fetch(
-      `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(session.user.id)}&message_id=${encodeURIComponent(message_id)}`,
+      `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(session.user.id)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}`,
       {
         headers: {
           Authorization: `Bearer ${ENGINE_API_KEY}`,
