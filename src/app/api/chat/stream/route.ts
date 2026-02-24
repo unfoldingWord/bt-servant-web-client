@@ -163,13 +163,23 @@ export async function POST(req: NextRequest) {
           )
         );
         controller.close();
-      } catch {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", error: "Polling error" })}\n\n`
-          )
-        );
-        controller.close();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[stream] polling error", {
+          error: msg,
+          cursor,
+          elapsed: Date.now() - startTime,
+        });
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", error: `Polling error: ${msg}` })}\n\n`
+            )
+          );
+          controller.close();
+        } catch {
+          // Controller already closed (browser disconnected)
+        }
       }
     },
   });
