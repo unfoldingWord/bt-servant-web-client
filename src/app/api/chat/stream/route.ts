@@ -10,6 +10,10 @@ const ENGINE_API_KEY = process.env.ENGINE_API_KEY!;
 const CLIENT_ID = process.env.CLIENT_ID || "web";
 const DEFAULT_ORG = process.env.DEFAULT_ORG || "unfoldingWord";
 
+const POLL_INTERVAL_ACTIVE_MS = 300;
+const POLL_INTERVAL_IDLE_MS = 1000;
+const POLL_MAX_TIME_MS = 120_000;
+
 const ChatStreamRequestSchema = z.object({
   message: z.string(),
   message_type: z.enum(["text", "audio"]).default("text"),
@@ -17,86 +21,11 @@ const ChatStreamRequestSchema = z.object({
   audio_format: z.string().optional(),
 });
 
-/**
- * Translate a queue SSE event into the client SSE format.
- * Returns the formatted SSE line to send to the browser, or null to suppress.
- */
-function translateQueueEvent(
-  eventType: string | null,
-  data: string
-): string | null {
-  switch (eventType) {
-    case "queued":
-      return `data: ${JSON.stringify({ type: "status", message: "Message queued..." })}\n\n`;
-
-    case "processing":
-      return `data: ${JSON.stringify({ type: "status", message: "Processing..." })}\n\n`;
-
-    case "done":
-      // Suppress — the worker's "complete" event already signals end-of-response
-      return null;
-
-    case "error": {
-      let errorMessage = "Unknown error";
-      try {
-        const parsed = JSON.parse(data);
-        errorMessage = parsed.error || errorMessage;
-      } catch {
-        if (data) errorMessage = data;
-      }
-      return `data: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`;
-    }
-
-    default:
-      // No event type = worker pass-through. Already in the format the browser expects.
-      return `data: ${data}\n\n`;
-  }
-}
-
-/**
- * Creates a TransformStream that translates queue SSE events into the
- * client-expected SSE format. The queue uses named `event:` fields for
- * lifecycle events (queued, processing, done, error) and passes through
- * worker events as plain `data:` lines.
- */
-function createQueueTransformStream(): TransformStream<Uint8Array, Uint8Array> {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let currentEvent: string | null = null;
-
-  return new TransformStream({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
-
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("event:")) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          const data = line.slice(5).trimStart();
-          const output = translateQueueEvent(currentEvent, data);
-          if (output !== null) {
-            controller.enqueue(encoder.encode(output));
-          }
-        } else if (line.trim() === "") {
-          // End of SSE event block — reset state
-          currentEvent = null;
-        }
-      }
-    },
-    flush(controller) {
-      if (buffer.trim() && buffer.startsWith("data:")) {
-        const data = buffer.slice(5).trimStart();
-        const output = translateQueueEvent(currentEvent, data);
-        if (output !== null) {
-          controller.enqueue(encoder.encode(output));
-        }
-      }
-    },
-  });
+interface PollResponse {
+  message_id: string;
+  events: { event: string; data: string }[];
+  done: boolean;
+  cursor: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -122,10 +51,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 1: Enqueue message
-  console.log("[stream] step1: enqueuing message", {
-    ENGINE_BASE_URL,
-    user_id: session.user.id,
-  });
   let message_id: string;
   try {
     const enqueueResponse = await fetch(`${ENGINE_BASE_URL}/api/v1/message`, {
@@ -160,10 +85,6 @@ export async function POST(req: NextRequest) {
 
     const result = await enqueueResponse.json();
     message_id = result.message_id;
-    console.log("[stream] step1: enqueue success", {
-      message_id,
-      status: enqueueResponse.status,
-    });
 
     if (!message_id) {
       return new Response(
@@ -178,49 +99,82 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Step 2: Connect to SSE stream
-  const streamUrl = `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(session.user.id)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}`;
-  console.log("[stream] step2: connecting to stream", { streamUrl });
-  let streamResponse: Response;
-  try {
-    streamResponse = await fetch(streamUrl, {
-      headers: {
-        Authorization: `Bearer ${ENGINE_API_KEY}`,
-        Accept: "text/event-stream",
-      },
-    });
-    console.log("[stream] step2: stream response received", {
-      status: streamResponse.status,
-      hasBody: !!streamResponse.body,
-    });
+  // Step 2: Poll for events and stream to browser
+  const userId = session.user.id;
+  const encoder = new TextEncoder();
 
-    if (!streamResponse.ok || !streamResponse.body) {
-      const errorText = await streamResponse
-        .text()
-        .catch(() => "No response body");
-      return new Response(
-        JSON.stringify({
-          error: `Stream error: ${streamResponse.status} - ${errorText}`,
-        }),
-        {
-          status: streamResponse.status,
-          headers: { "Content-Type": "application/json" },
-        }
+  const stream = new ReadableStream({
+    async start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({ type: "status", message: "Message queued..." })}\n\n`
+        )
       );
-    }
-  } catch (err) {
-    console.error("[stream] step2: stream fetch error", { error: String(err) });
-    return new Response(
-      JSON.stringify({ error: "Failed to connect to stream" }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
-  }
 
-  // Step 3: Transform queue events and stream to client
-  console.log("[stream] step3: piping stream to client");
-  const transformStream = createQueueTransformStream();
+      let cursor = 0;
+      let pollInterval = POLL_INTERVAL_ACTIVE_MS;
+      const startTime = Date.now();
 
-  return new Response(streamResponse.body.pipeThrough(transformStream), {
+      try {
+        while (Date.now() - startTime < POLL_MAX_TIME_MS) {
+          const pollUrl = `${ENGINE_BASE_URL}/api/v1/poll?user_id=${encodeURIComponent(userId)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}&cursor=${cursor}`;
+
+          const pollResponse = await fetch(pollUrl, {
+            headers: { Authorization: `Bearer ${ENGINE_API_KEY}` },
+          });
+
+          if (!pollResponse.ok) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "error", error: `Poll error: ${pollResponse.status}` })}\n\n`
+              )
+            );
+            controller.close();
+            return;
+          }
+
+          const pollData: PollResponse = await pollResponse.json();
+
+          for (const event of pollData.events) {
+            if (event.event === "done") continue;
+            controller.enqueue(encoder.encode(`data: ${event.data}\n\n`));
+          }
+
+          cursor = pollData.cursor;
+
+          if (pollData.done) {
+            controller.close();
+            return;
+          }
+
+          // Adaptive polling: fast when events flow, slow when idle
+          pollInterval =
+            pollData.events.length > 0
+              ? POLL_INTERVAL_ACTIVE_MS
+              : Math.min(pollInterval + 200, POLL_INTERVAL_IDLE_MS);
+
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        }
+
+        // Timeout
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "error", error: "Request timed out" })}\n\n`
+          )
+        );
+        controller.close();
+      } catch {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "error", error: "Polling error" })}\n\n`
+          )
+        );
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
