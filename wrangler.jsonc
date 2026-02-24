@@ -19,7 +19,7 @@
       "name": "bt-servant-web-client-staging",
       "vars": {
         "AUTH_TRUST_HOST": "true",
-        "ENGINE_BASE_URL": "https://bt-servant-worker-staging.unfoldingword.workers.dev",
+        "ENGINE_BASE_URL": "https://staging-api.btservant.ai",
         "CLIENT_ID": "web",
         "DEFAULT_ORG": "unfoldingWord",
       },
