@@ -122,6 +122,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 1: Enqueue message
+  console.log("[stream] step1: enqueuing message", {
+    ENGINE_BASE_URL,
+    user_id: session.user.id,
+  });
   let message_id: string;
   try {
     const enqueueResponse = await fetch(`${ENGINE_BASE_URL}/api/v1/message`, {
@@ -156,6 +160,10 @@ export async function POST(req: NextRequest) {
 
     const result = await enqueueResponse.json();
     message_id = result.message_id;
+    console.log("[stream] step1: enqueue success", {
+      message_id,
+      status: enqueueResponse.status,
+    });
 
     if (!message_id) {
       return new Response(
@@ -171,17 +179,20 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 2: Connect to SSE stream
+  const streamUrl = `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(session.user.id)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}`;
+  console.log("[stream] step2: connecting to stream", { streamUrl });
   let streamResponse: Response;
   try {
-    streamResponse = await fetch(
-      `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(session.user.id)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${ENGINE_API_KEY}`,
-          Accept: "text/event-stream",
-        },
-      }
-    );
+    streamResponse = await fetch(streamUrl, {
+      headers: {
+        Authorization: `Bearer ${ENGINE_API_KEY}`,
+        Accept: "text/event-stream",
+      },
+    });
+    console.log("[stream] step2: stream response received", {
+      status: streamResponse.status,
+      hasBody: !!streamResponse.body,
+    });
 
     if (!streamResponse.ok || !streamResponse.body) {
       const errorText = await streamResponse
@@ -197,7 +208,8 @@ export async function POST(req: NextRequest) {
         }
       );
     }
-  } catch {
+  } catch (err) {
+    console.error("[stream] step2: stream fetch error", { error: String(err) });
     return new Response(
       JSON.stringify({ error: "Failed to connect to stream" }),
       { status: 502, headers: { "Content-Type": "application/json" } }
@@ -205,6 +217,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 3: Transform queue events and stream to client
+  console.log("[stream] step3: piping stream to client");
   const transformStream = createQueueTransformStream();
 
   return new Response(streamResponse.body.pipeThrough(transformStream), {
