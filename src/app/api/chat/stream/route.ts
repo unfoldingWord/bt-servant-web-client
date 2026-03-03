@@ -60,9 +60,13 @@ export async function POST(req: NextRequest) {
 
     if (!enqueueResponse.ok) {
       const errorText = await enqueueResponse.text();
+      console.error("[enqueue] upstream error", {
+        status: enqueueResponse.status,
+        body: errorText,
+      });
       return new Response(
         JSON.stringify({
-          error: `Enqueue error: ${enqueueResponse.status} - ${errorText}`,
+          error: `Enqueue error: ${enqueueResponse.status}`,
         }),
         {
           status: enqueueResponse.status,

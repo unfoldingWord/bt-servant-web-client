@@ -308,7 +308,11 @@ export function useChatRuntime() {
         // Timeout
         handleError("Request timed out after 2 minutes.");
       } catch (error) {
-        if ((error as Error).name === "AbortError") return;
+        if ((error as Error).name === "AbortError") {
+          setIsLoading(false);
+          setStatusMessage(null);
+          return;
+        }
         console.error("Chat error:", error);
         handleError("Sorry, I encountered an error. Please try again.");
       } finally {
