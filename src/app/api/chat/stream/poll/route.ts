@@ -16,10 +16,18 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const message_id = searchParams.get("message_id");
-  const cursor = searchParams.get("cursor") ?? "0";
+  const cursorParam = searchParams.get("cursor") ?? "0";
+  const cursor = Number(cursorParam);
 
   if (!message_id) {
     return new Response(JSON.stringify({ error: "Missing message_id" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!Number.isFinite(cursor) || cursor < 0) {
+    return new Response(JSON.stringify({ error: "Invalid cursor" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
@@ -34,9 +42,13 @@ export async function GET(req: NextRequest) {
 
     if (!pollResponse.ok) {
       const errorText = await pollResponse.text();
+      console.error("[poll] upstream error", {
+        status: pollResponse.status,
+        body: errorText,
+      });
       return new Response(
         JSON.stringify({
-          error: `Poll error: ${pollResponse.status} - ${errorText}`,
+          error: `Poll error: ${pollResponse.status}`,
         }),
         {
           status: pollResponse.status,
@@ -48,7 +60,10 @@ export async function GET(req: NextRequest) {
     const data = await pollResponse.json();
     return new Response(JSON.stringify(data), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
     });
   } catch {
     return new Response(

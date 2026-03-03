@@ -73,9 +73,17 @@ export function useChatRuntime() {
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
+  const abortControllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
+
+  // Abort polling on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Load chat history and convert to ChatMessage format
   const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
@@ -206,6 +214,9 @@ export function useChatRuntime() {
       const POLL_INTERVAL_IDLE_MS = 1500;
       const POLL_MAX_TIME_MS = 120_000;
 
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       try {
         // Step 1: Enqueue message
         const enqueueResponse = await fetch("/api/chat/stream", {
@@ -217,6 +228,7 @@ export function useChatRuntime() {
             audio_base64: audioBase64,
             audio_format: audioFormat,
           }),
+          signal: abortController.signal,
         });
 
         if (!enqueueResponse.ok) {
@@ -232,12 +244,14 @@ export function useChatRuntime() {
         let cursor = 0;
         let pollInterval = POLL_INTERVAL_ACTIVE_MS;
         const startTime = Date.now();
+        let handledTerminal = false;
 
         setStatusMessage("Message queued...");
 
         while (Date.now() - startTime < POLL_MAX_TIME_MS) {
           const pollResponse = await fetch(
-            `/api/chat/stream/poll?message_id=${encodeURIComponent(message_id)}&cursor=${cursor}`
+            `/api/chat/stream/poll?message_id=${encodeURIComponent(message_id)}&cursor=${cursor}`,
+            { signal: abortController.signal }
           );
 
           if (!pollResponse.ok) {
@@ -262,8 +276,10 @@ export function useChatRuntime() {
                 setStreamingText((prev) => prev + parsed.text);
               } else if (parsed.type === "complete") {
                 handleComplete(parsed.response);
+                handledTerminal = true;
               } else if (parsed.type === "error") {
                 handleError(parsed.error);
+                handledTerminal = true;
               }
             } catch {
               // Ignore parse errors for individual events
@@ -273,6 +289,10 @@ export function useChatRuntime() {
           cursor = pollData.cursor;
 
           if (pollData.done) {
+            if (!handledTerminal) {
+              setIsLoading(false);
+              setStatusMessage(null);
+            }
             return;
           }
 
@@ -288,8 +308,11 @@ export function useChatRuntime() {
         // Timeout
         handleError("Request timed out after 2 minutes.");
       } catch (error) {
+        if ((error as Error).name === "AbortError") return;
         console.error("Chat error:", error);
         handleError("Sorry, I encountered an error. Please try again.");
+      } finally {
+        abortControllerRef.current = null;
       }
     },
     [handleComplete, handleError]
