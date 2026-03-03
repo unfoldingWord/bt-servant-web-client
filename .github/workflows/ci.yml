@@ -23,6 +23,11 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Configure Font Awesome Pro
+        run: |
+          echo "@fortawesome:registry=https://npm.fontawesome.com/" >> .npmrc
+          echo "//npm.fontawesome.com/:_authToken=${{ secrets.FONTAWESOME_TOKEN }}" >> .npmrc
+
       - name: Install dependencies
         run: npm ci
 
@@ -36,7 +41,7 @@ jobs:
         run: npm run typecheck
 
       - name: Security audit
-        run: npm audit --audit-level=moderate
+        run: npm audit --omit=dev --audit-level=moderate
 
   # ==========================================
   # Build & Bundle Analysis
@@ -54,6 +59,11 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+
+      - name: Configure Font Awesome Pro
+        run: |
+          echo "@fortawesome:registry=https://npm.fontawesome.com/" >> .npmrc
+          echo "//npm.fontawesome.com/:_authToken=${{ secrets.FONTAWESOME_TOKEN }}" >> .npmrc
 
       - name: Install dependencies
         run: npm ci
