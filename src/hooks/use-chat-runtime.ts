@@ -73,9 +73,17 @@ export function useChatRuntime() {
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
+  const abortControllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
+
+  // Abort polling on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Load chat history and convert to ChatMessage format
   const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
@@ -202,8 +210,16 @@ export function useChatRuntime() {
       setStatusMessage(null);
       setStreamingText("");
 
+      const POLL_INTERVAL_ACTIVE_MS = 600;
+      const POLL_INTERVAL_IDLE_MS = 1500;
+      const POLL_MAX_TIME_MS = 120_000;
+
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       try {
-        const response = await fetch("/api/chat/stream", {
+        // Step 1: Enqueue message
+        const enqueueResponse = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -212,56 +228,95 @@ export function useChatRuntime() {
             audio_base64: audioBase64,
             audio_format: audioFormat,
           }),
+          signal: abortController.signal,
         });
 
-        if (!response.ok) {
+        if (!enqueueResponse.ok) {
           throw new Error("Failed to send message");
         }
 
-        // Read SSE stream
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("No response body");
+        const { message_id } = await enqueueResponse.json();
+        if (!message_id) {
+          throw new Error("No message_id returned");
         }
 
-        const decoder = new TextDecoder();
-        let buffer = "";
+        // Step 2: Poll for events from the browser
+        let cursor = 0;
+        let pollInterval = POLL_INTERVAL_ACTIVE_MS;
+        const startTime = Date.now();
+        let handledTerminal = false;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        setStatusMessage("Message queued...");
 
-          buffer += decoder.decode(value, { stream: true });
+        while (Date.now() - startTime < POLL_MAX_TIME_MS) {
+          const pollResponse = await fetch(
+            `/api/chat/stream/poll?message_id=${encodeURIComponent(message_id)}&cursor=${cursor}`,
+            { signal: abortController.signal }
+          );
 
-          // Parse SSE events from buffer
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+          if (!pollResponse.ok) {
+            throw new Error(`Poll error: ${pollResponse.status}`);
+          }
 
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const event: SSEEvent = JSON.parse(line.slice(6));
+          const pollData: {
+            message_id: string;
+            events: { event: string; data: string }[];
+            done: boolean;
+            cursor: number;
+          } = await pollResponse.json();
 
-                if (event.type === "status") {
-                  setStatusMessage(event.message);
-                } else if (event.type === "progress") {
-                  // Accumulate streaming text
-                  setStreamingText((prev) => prev + event.text);
-                } else if (event.type === "complete") {
-                  handleComplete(event.response);
-                } else if (event.type === "error") {
-                  handleError(event.error);
-                }
-                // Ignore tool_use and tool_result events for now
-              } catch {
-                // Ignore parse errors
+          for (const event of pollData.events) {
+            if (event.event === "done") continue;
+            try {
+              const parsed: SSEEvent = JSON.parse(event.data);
+
+              if (parsed.type === "status") {
+                setStatusMessage(parsed.message);
+              } else if (parsed.type === "progress") {
+                setStreamingText((prev) => prev + parsed.text);
+              } else if (parsed.type === "complete") {
+                handleComplete(parsed.response);
+                handledTerminal = true;
+              } else if (parsed.type === "error") {
+                handleError(parsed.error);
+                handledTerminal = true;
               }
+            } catch {
+              // Ignore parse errors for individual events
             }
           }
+
+          cursor = pollData.cursor;
+
+          if (pollData.done) {
+            if (!handledTerminal) {
+              setIsLoading(false);
+              setStatusMessage(null);
+            }
+            return;
+          }
+
+          // Adaptive polling: fast when events flowing, ramp up when idle
+          pollInterval =
+            pollData.events.length > 0
+              ? POLL_INTERVAL_ACTIVE_MS
+              : Math.min(pollInterval + 200, POLL_INTERVAL_IDLE_MS);
+
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
         }
+
+        // Timeout
+        handleError("Request timed out after 2 minutes.");
       } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          setIsLoading(false);
+          setStatusMessage(null);
+          return;
+        }
         console.error("Chat error:", error);
         handleError("Sorry, I encountered an error. Please try again.");
+      } finally {
+        abortControllerRef.current = null;
       }
     },
     [handleComplete, handleError]
