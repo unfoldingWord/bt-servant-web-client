@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     org,
   });
 
-  const response = await fetch(`${ENGINE_BASE_URL}/api/v1/message`, {
+  const response = await fetch(`${ENGINE_BASE_URL}/api/v1/chat/queue`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

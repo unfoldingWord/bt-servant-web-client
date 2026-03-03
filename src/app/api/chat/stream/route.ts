@@ -53,22 +53,25 @@ export async function POST(req: NextRequest) {
   // Step 1: Enqueue message
   let message_id: string;
   try {
-    const enqueueResponse = await fetch(`${ENGINE_BASE_URL}/api/v1/message`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ENGINE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        user_id: session.user.id,
-        org: DEFAULT_ORG,
-        message: parsed.message,
-        message_type: parsed.message_type,
-        client_id: CLIENT_ID,
-        ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
-        ...(parsed.audio_format && { audio_format: parsed.audio_format }),
-      }),
-    });
+    const enqueueResponse = await fetch(
+      `${ENGINE_BASE_URL}/api/v1/chat/queue`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ENGINE_API_KEY}`,
+        },
+        body: JSON.stringify({
+          user_id: session.user.id,
+          org: DEFAULT_ORG,
+          message: parsed.message,
+          message_type: parsed.message_type,
+          client_id: CLIENT_ID,
+          ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
+          ...(parsed.audio_format && { audio_format: parsed.audio_format }),
+        }),
+      }
+    );
 
     if (!enqueueResponse.ok) {
       const errorText = await enqueueResponse.text();
@@ -117,7 +120,7 @@ export async function POST(req: NextRequest) {
 
       try {
         while (Date.now() - startTime < POLL_MAX_TIME_MS) {
-          const pollUrl = `${ENGINE_BASE_URL}/api/v1/poll?user_id=${encodeURIComponent(userId)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}&cursor=${cursor}`;
+          const pollUrl = `${ENGINE_BASE_URL}/api/v1/chat/queue/poll?user_id=${encodeURIComponent(userId)}&message_id=${encodeURIComponent(message_id)}&org=${encodeURIComponent(DEFAULT_ORG)}&cursor=${cursor}`;
 
           const pollResponse = await fetch(pollUrl, {
             headers: { Authorization: `Bearer ${ENGINE_API_KEY}` },

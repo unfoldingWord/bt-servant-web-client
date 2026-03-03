@@ -74,7 +74,7 @@ async function testDOStream(req: NextRequest) {
     );
   }
 
-  const streamUrl = `${ENGINE_BASE_URL}/api/v1/stream?user_id=${encodeURIComponent(userId)}&message_id=${encodeURIComponent(messageId)}&org=${encodeURIComponent(org)}`;
+  const streamUrl = `${ENGINE_BASE_URL}/api/v1/chat/queue/stream?user_id=${encodeURIComponent(userId)}&message_id=${encodeURIComponent(messageId)}&org=${encodeURIComponent(org)}`;
   console.log("[test-stream] fetching DO stream...", { streamUrl });
 
   try {
