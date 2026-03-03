@@ -98,6 +98,7 @@ export const Thread: FC = () => {
         <ThreadPrimitive.Viewport
           ref={viewportRef}
           onScroll={handleScroll}
+          autoScroll={false}
           className="flex grow flex-col overflow-y-auto overscroll-none px-4 pt-8"
         >
           <ThreadPrimitive.Messages components={{ Message: ChatMessage }} />
@@ -150,7 +151,7 @@ const ThreadWelcome: FC = () => {
         <div className="flex w-full max-w-3xl flex-col items-center">
           {/* Welcome message */}
           <div className="mb-8">
-            <p className="text-center text-lg text-[#1a1a18] sm:text-2xl dark:text-[#eee]">
+            <p className="text-center text-2xl text-[#1a1a18] sm:text-3xl dark:text-[#eee]">
               Hello, I&apos;m BT Servant. How can I serve you today?
             </p>
           </div>
