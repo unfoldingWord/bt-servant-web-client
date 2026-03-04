@@ -140,12 +140,12 @@ export function useChatRuntime() {
     if (!pending) return;
 
     pendingCompleteRef.current = null;
-    setIsCompleting(false);
-    setIsLoading(false);
-    setStatusMessage(null);
-    // Add the final message and clear streaming in one batch on next frame
-    // to avoid a visual flash from renderer swap
+    // Batch all state updates in a single rAF to avoid intermediate renders
+    // where isCompleting is false but the streaming message is still present
     requestAnimationFrame(() => {
+      setIsCompleting(false);
+      setIsLoading(false);
+      setStatusMessage(null);
       setMessages((prev) => [...prev, pending.message]);
       setStreamingText("");
     });

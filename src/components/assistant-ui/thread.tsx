@@ -31,7 +31,6 @@ import { cn } from "@/lib/utils";
 
 // Animation constants
 const CHARS_PER_TICK = 2;
-const CHARS_PER_TICK_COMPLETING = CHARS_PER_TICK; // Same rate during catch-up for smooth feel
 const TICK_MS = 16; // ~60fps
 
 // Markdown components matching MarkdownText for seamless streaming→complete swap.
@@ -101,6 +100,20 @@ const streamingMarkdownComponents = {
       {...props}
     />
   ),
+  code: ({ node: _n, className, ...props }: any) => {
+    // Detect code block: react-markdown adds language-* class for fenced blocks
+    const isCodeBlock =
+      typeof className === "string" && /language-/.test(className);
+    return (
+      <code
+        className={cn(
+          !isCodeBlock && "bg-muted rounded border px-1 font-semibold",
+          className
+        )}
+        {...props}
+      />
+    );
+  },
 };
 /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
@@ -384,12 +397,17 @@ function useAnimatedText(
   // Detect text reset and update state together
   if (text !== prevText) {
     setPrevText(text);
-    // Only reset when text is cleared (new message); on growth (including
-    // the complete-event replacement) keep current position so animation
-    // catches up smoothly instead of jumping.
     if (text.length === 0) {
+      // Text cleared (new message) — reset animation
+      setDisplayedLength(0);
+    } else if (displayedLength > text.length) {
+      // New text is shorter than what we've shown — clamp to end
+      setDisplayedLength(text.length);
+    } else if (!text.startsWith(prevText.slice(0, displayedLength))) {
+      // Content diverged from what was displayed — reset to avoid garbled text
       setDisplayedLength(0);
     }
+    // Otherwise text grew or was replaced with compatible prefix — keep position
   }
 
   useEffect(() => {
@@ -419,7 +437,7 @@ const AnimatedText: FC<{
 }> = ({ text, isCompleting, onAnimationCaughtUp }) => {
   const [displayedText, isAnimationDone] = useAnimatedText(
     text,
-    isCompleting ? CHARS_PER_TICK_COMPLETING : CHARS_PER_TICK
+    CHARS_PER_TICK
   );
   const calledRef = useRef(false);
 
