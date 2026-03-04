@@ -141,15 +141,21 @@ export function useChatRuntime() {
 
     pendingCompleteRef.current = null;
     setIsCompleting(false);
-    setMessages((prev) => [...prev, pending.message]);
     setIsLoading(false);
     setStatusMessage(null);
-    setStreamingText("");
+    // Add the final message and clear streaming in one batch on next frame
+    // to avoid a visual flash from renderer swap
+    requestAnimationFrame(() => {
+      setMessages((prev) => [...prev, pending.message]);
+      setStreamingText("");
+    });
   }, []);
 
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
     const joinedResponse = data.responses.join("\n\n");
+    const currentStreaming = streamingTextRef.current;
+
     const assistantMessage = createMessage(
       `assistant-${Date.now()}`,
       "assistant",
@@ -157,11 +163,8 @@ export function useChatRuntime() {
       data.voice_audio_base64 || undefined
     );
 
-    const currentStreaming = streamingTextRef.current;
-
-    // If no streaming text was accumulated, or complete text diverges from
-    // what was streamed, swap immediately (no animation to wait for)
-    if (!currentStreaming || !joinedResponse.startsWith(currentStreaming)) {
+    // If no streaming text was accumulated, swap immediately
+    if (!currentStreaming) {
       setMessages((prev) => [...prev, assistantMessage]);
       setIsLoading(false);
       setStatusMessage(null);
@@ -169,10 +172,12 @@ export function useChatRuntime() {
       return;
     }
 
-    // Defer swap: store pending data and set full text so animation finishes
+    // Defer swap: update streaming text to the full response so AnimatedText
+    // can animate the remaining characters, then finalizeComplete swaps in
+    // the permanent message once the animation catches up.
     pendingCompleteRef.current = { message: assistantMessage };
-    setIsCompleting(true);
     setStreamingText(joinedResponse);
+    setIsCompleting(true);
     setStatusMessage(null);
   }, []);
 
@@ -313,7 +318,6 @@ export function useChatRuntime() {
           setStatusMessage(null);
           return;
         }
-        console.error("Chat error:", error);
         handleError("Sorry, I encountered an error. Please try again.");
       } finally {
         abortControllerRef.current = null;

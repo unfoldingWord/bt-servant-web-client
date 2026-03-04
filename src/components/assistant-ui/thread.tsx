@@ -25,10 +25,84 @@ import {
   faArrowDown,
 } from "@fortawesome/pro-regular-svg-icons";
 import { useState, useEffect, useRef, useCallback, type FC } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
 
-// Animation constants (like lasker-app)
+// Animation constants
 const CHARS_PER_TICK = 2;
+const CHARS_PER_TICK_COMPLETING = CHARS_PER_TICK; // Same rate during catch-up for smooth feel
 const TICK_MS = 16; // ~60fps
+
+// Markdown components matching MarkdownText for seamless streaming→complete swap.
+// Keep in sync with defaultComponents in src/components/assistant-ui/markdown-text.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+const streamingMarkdownComponents = {
+  h1: ({ node: _n, className, ...props }: any) => (
+    <h1
+      className={cn(
+        "mb-8 scroll-m-20 text-4xl font-extrabold tracking-tight last:mb-0",
+        className
+      )}
+      {...props}
+    />
+  ),
+  h2: ({ node: _n, className, ...props }: any) => (
+    <h2
+      className={cn(
+        "mt-8 mb-4 scroll-m-20 text-3xl font-semibold tracking-tight first:mt-0 last:mb-0",
+        className
+      )}
+      {...props}
+    />
+  ),
+  h3: ({ node: _n, className, ...props }: any) => (
+    <h3
+      className={cn(
+        "mt-6 mb-4 scroll-m-20 text-2xl font-semibold tracking-tight first:mt-0 last:mb-0",
+        className
+      )}
+      {...props}
+    />
+  ),
+  p: ({ node: _n, className, ...props }: any) => (
+    <p
+      className={cn("mt-5 mb-5 leading-7 first:mt-0 last:mb-0", className)}
+      {...props}
+    />
+  ),
+  a: ({ node: _n, className, ...props }: any) => (
+    <a
+      className={cn(
+        "text-primary font-medium underline underline-offset-4",
+        className
+      )}
+      {...props}
+    />
+  ),
+  ul: ({ node: _n, className, ...props }: any) => (
+    <ul
+      className={cn("my-5 ml-6 list-disc [&>li]:mt-2", className)}
+      {...props}
+    />
+  ),
+  ol: ({ node: _n, className, ...props }: any) => (
+    <ol
+      className={cn("my-5 ml-6 list-decimal [&>li]:mt-2", className)}
+      {...props}
+    />
+  ),
+  pre: ({ node: _n, className, ...props }: any) => (
+    <pre
+      className={cn(
+        "overflow-x-auto rounded-t-none! rounded-b-lg bg-black p-4 text-white",
+        className
+      )}
+      {...props}
+    />
+  ),
+};
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
   visible,
@@ -98,7 +172,7 @@ export const Thread: FC = () => {
         <ThreadPrimitive.Viewport
           ref={viewportRef}
           onScroll={handleScroll}
-          autoScroll={false}
+          autoScroll
           className="flex grow flex-col overflow-y-auto overscroll-none px-4 pt-8"
         >
           <ThreadPrimitive.Messages components={{ Message: ChatMessage }} />
@@ -114,7 +188,7 @@ export const Thread: FC = () => {
           />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.3.0
+            BT Servant Web v1.3.1
           </p>
         </div>
       </AssistantIf>
@@ -197,7 +271,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.3.0
+          BT Servant Web v1.3.1
         </p>
       </div>
     </div>
@@ -228,30 +302,28 @@ const Composer: FC = () => {
   return (
     <div className="mx-auto w-full max-w-3xl">
       <ComposerPrimitive.Root className="flex w-full flex-col rounded-2xl border border-transparent bg-white p-0.5 shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.035),0_0_0_0.5px_rgba(0,0,0,0.08)] transition-shadow duration-200 focus-within:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.075),0_0_0_0.5px_rgba(0,0,0,0.15)] hover:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.05),0_0_0_0.5px_rgba(0,0,0,0.12)] dark:bg-[#1f1e1b] dark:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(108,106,96,0.15)] dark:focus-within:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.5),0_0_0_0.5px_rgba(108,106,96,0.3)] dark:hover:shadow-[0_0.25rem_1.25rem_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(108,106,96,0.3)]">
-        <div className="m-3.5 flex flex-col gap-3.5">
-          <div className="relative">
+        <div className="m-3.5 flex items-center gap-3">
+          <div className="relative min-w-0 flex-1">
             <div className="max-h-96 w-full overflow-y-auto">
               <ComposerPrimitive.Input
                 placeholder="How can I help you today?"
-                className="block min-h-6 w-full resize-none bg-transparent font-sans text-[#1a1a18] outline-none placeholder:text-[#9a9893] dark:text-[#eee] dark:placeholder:text-[#9a9893]"
+                className="block min-h-8 w-full resize-none bg-transparent font-sans text-lg text-[#1a1a18] outline-none placeholder:text-lg placeholder:text-[#9a9893] dark:text-[#eee] dark:placeholder:text-[#9a9893]"
               />
             </div>
           </div>
-          <div className="flex w-full items-center gap-2">
-            <div className="relative flex min-w-0 flex-1 shrink items-center gap-2">
-              {/* Voice button - hidden when audio disabled */}
-              {AUDIO_ENABLED && voiceRecorder.isSupported && (
-                <button
-                  type="button"
-                  onClick={() => setShowVoiceRecorder(true)}
-                  disabled={isLoading}
-                  className="flex h-8 min-w-8 items-center justify-center overflow-hidden rounded-lg border border-[#00000015] bg-transparent px-1.5 text-[#6b6a68] transition-all hover:bg-[#f5f5f0] hover:text-[#1a1a18] active:scale-[0.98] disabled:opacity-50 dark:border-[#6c6a6040] dark:text-[#9a9893] dark:hover:bg-[#393937] dark:hover:text-[#eee]"
-                  aria-label="Voice message"
-                >
-                  <MicIcon width={16} height={16} />
-                </button>
-              )}
-            </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Voice button - hidden when audio disabled */}
+            {AUDIO_ENABLED && voiceRecorder.isSupported && (
+              <button
+                type="button"
+                onClick={() => setShowVoiceRecorder(true)}
+                disabled={isLoading}
+                className="flex h-8 min-w-8 items-center justify-center overflow-hidden rounded-lg border border-[#00000015] bg-transparent px-1.5 text-[#6b6a68] transition-all hover:bg-[#f5f5f0] hover:text-[#1a1a18] active:scale-[0.98] disabled:opacity-50 dark:border-[#6c6a6040] dark:text-[#9a9893] dark:hover:bg-[#393937] dark:hover:text-[#eee]"
+                aria-label="Voice message"
+              >
+                <MicIcon width={16} height={16} />
+              </button>
+            )}
             <ComposerPrimitive.Send className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ae5630] transition-colors hover:bg-[#c4633a] active:scale-95 disabled:pointer-events-none disabled:opacity-50 dark:bg-[#ae5630] dark:hover:bg-[#c4633a]">
               <ArrowUpIcon width={16} height={16} className="text-white" />
             </ComposerPrimitive.Send>
@@ -301,7 +373,10 @@ const UserMessage: FC = () => {
 };
 
 // Animated text hook for streaming - handles character-by-character reveal
-function useAnimatedText(text: string): [string, boolean] {
+function useAnimatedText(
+  text: string,
+  charsPerTick: number = CHARS_PER_TICK
+): [string, boolean] {
   const [displayedLength, setDisplayedLength] = useState(text.length);
   // Track previous text to detect resets
   const [prevText, setPrevText] = useState(text);
@@ -309,11 +384,10 @@ function useAnimatedText(text: string): [string, boolean] {
   // Detect text reset and update state together
   if (text !== prevText) {
     setPrevText(text);
-    // If text was cleared, reset displayed length
-    if (
-      text.length === 0 ||
-      (prevText.length > 0 && !text.startsWith(prevText))
-    ) {
+    // Only reset when text is cleared (new message); on growth (including
+    // the complete-event replacement) keep current position so animation
+    // catches up smoothly instead of jumping.
+    if (text.length === 0) {
       setDisplayedLength(0);
     }
   }
@@ -323,12 +397,12 @@ function useAnimatedText(text: string): [string, boolean] {
     if (displayedLength < text.length) {
       const interval = setInterval(() => {
         setDisplayedLength((prev) =>
-          Math.min(prev + CHARS_PER_TICK, text.length)
+          Math.min(prev + charsPerTick, text.length)
         );
       }, TICK_MS);
       return () => clearInterval(interval);
     }
-  }, [text.length, displayedLength]);
+  }, [text.length, displayedLength, charsPerTick]);
 
   const isAnimationDone = displayedLength >= text.length;
   return [
@@ -343,17 +417,18 @@ const AnimatedText: FC<{
   isCompleting: boolean;
   onAnimationCaughtUp: () => void;
 }> = ({ text, isCompleting, onAnimationCaughtUp }) => {
-  const [displayedText, isAnimationDone] = useAnimatedText(text);
+  const [displayedText, isAnimationDone] = useAnimatedText(
+    text,
+    isCompleting ? CHARS_PER_TICK_COMPLETING : CHARS_PER_TICK
+  );
   const calledRef = useRef(false);
 
-  // Reset the called flag when isCompleting transitions to true
   useEffect(() => {
     if (isCompleting) {
       calledRef.current = false;
     }
   }, [isCompleting]);
 
-  // Fire callback when completing AND animation has caught up
   useEffect(() => {
     if (isCompleting && isAnimationDone && !calledRef.current) {
       calledRef.current = true;
@@ -361,7 +436,14 @@ const AnimatedText: FC<{
     }
   }, [isCompleting, isAnimationDone, onAnimationCaughtUp]);
 
-  return <span className="whitespace-pre-wrap">{displayedText}</span>;
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={streamingMarkdownComponents}
+    >
+      {displayedText}
+    </Markdown>
+  );
 };
 
 const AssistantMessage: FC = () => {
