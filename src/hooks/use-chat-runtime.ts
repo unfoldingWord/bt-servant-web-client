@@ -140,15 +140,12 @@ export function useChatRuntime() {
     if (!pending) return;
 
     pendingCompleteRef.current = null;
-    // Batch all state updates in a single rAF to avoid intermediate renders
-    // where isCompleting is false but the streaming message is still present
-    requestAnimationFrame(() => {
-      setIsCompleting(false);
-      setIsLoading(false);
-      setStatusMessage(null);
-      setMessages((prev) => [...prev, pending.message]);
-      setStreamingText("");
-    });
+    // React 18+ auto-batches these into a single render
+    setIsCompleting(false);
+    setIsLoading(false);
+    setStatusMessage(null);
+    setMessages((prev) => [...prev, pending.message]);
+    setStreamingText("");
   }, []);
 
   // Define handlers before sendMessage so they can be in the dependency array
