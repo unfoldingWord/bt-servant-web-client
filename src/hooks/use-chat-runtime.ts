@@ -247,7 +247,6 @@ export function useChatRuntime() {
         let pollInterval = POLL_INTERVAL_ACTIVE_MS;
         const startTime = Date.now();
         let handledTerminal = false;
-        let receivedTerminal = false;
 
         setStatusMessage("Message queued...");
 
@@ -277,15 +276,13 @@ export function useChatRuntime() {
                 setStatusMessage(parsed.message);
               } else if (parsed.type === "progress") {
                 // Ignore straggling progress chunks after terminal event
-                if (!receivedTerminal) {
+                if (!handledTerminal) {
                   setStreamingText((prev) => prev + parsed.text);
                 }
               } else if (parsed.type === "complete") {
-                receivedTerminal = true;
                 handleComplete(parsed.response);
                 handledTerminal = true;
               } else if (parsed.type === "error") {
-                receivedTerminal = true;
                 handleError(parsed.error);
                 handledTerminal = true;
               }
