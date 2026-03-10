@@ -201,7 +201,7 @@ export const Thread: FC = () => {
           />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.3.1
+            BT Servant Web v1.3.2
           </p>
         </div>
       </AssistantIf>
@@ -284,7 +284,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.3.1
+          BT Servant Web v1.3.2
         </p>
       </div>
     </div>
