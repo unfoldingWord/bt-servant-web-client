@@ -5,7 +5,7 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
-import { AUDIO_ENABLED } from "@/lib/feature-flags";
+import { APP_VERSION } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import {
   ActionBarPrimitive,
@@ -201,7 +201,7 @@ export const Thread: FC = () => {
           />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.3.2
+            {APP_VERSION}
           </p>
         </div>
       </AssistantIf>
@@ -284,7 +284,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.3.2
+          {APP_VERSION}
         </p>
       </div>
     </div>
@@ -301,7 +301,7 @@ const Composer: FC = () => {
     await sendMessage("", audioBase64, format);
   };
 
-  if (AUDIO_ENABLED && showVoiceRecorder) {
+  if (showVoiceRecorder) {
     return (
       <div className="mx-auto w-full max-w-3xl">
         <VoiceRecorder
@@ -325,8 +325,8 @@ const Composer: FC = () => {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* Voice button - hidden when audio disabled */}
-            {AUDIO_ENABLED && voiceRecorder.isSupported && (
+            {/* Voice button */}
+            {voiceRecorder.isSupported && (
               <button
                 type="button"
                 onClick={() => setShowVoiceRecorder(true)}
@@ -521,8 +521,8 @@ const AssistantMessage: FC = () => {
         )}
       </div>
 
-      {/* Audio player for voice responses - hidden when audio disabled */}
-      {AUDIO_ENABLED && audioBase64 && (
+      {/* Audio player for voice responses */}
+      {audioBase64 && (
         <div className="mt-2">
           <AudioPlayer audioBase64={audioBase64} />
         </div>
