@@ -404,8 +404,9 @@ function useAnimatedText(
       // New text is shorter than what we've shown — clamp to end
       setDisplayedLength(text.length);
     } else if (!text.startsWith(prevText.slice(0, displayedLength))) {
-      // Content diverged from what was displayed — reset to avoid garbled text
-      setDisplayedLength(0);
+      // Content diverged from what was displayed — snap to end to avoid
+      // replaying the entire response from scratch.
+      setDisplayedLength(text.length);
     }
     // Otherwise text grew or was replaced with compatible prefix — keep position
   }
