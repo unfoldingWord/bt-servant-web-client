@@ -275,7 +275,10 @@ export function useChatRuntime() {
               if (parsed.type === "status") {
                 setStatusMessage(parsed.message);
               } else if (parsed.type === "progress") {
-                setStreamingText((prev) => prev + parsed.text);
+                // Ignore straggling progress chunks after terminal event
+                if (!handledTerminal) {
+                  setStreamingText((prev) => prev + parsed.text);
+                }
               } else if (parsed.type === "complete") {
                 handleComplete(parsed.response);
                 handledTerminal = true;
