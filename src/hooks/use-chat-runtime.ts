@@ -275,7 +275,11 @@ export function useChatRuntime() {
               if (parsed.type === "status") {
                 setStatusMessage(parsed.message);
               } else if (parsed.type === "progress") {
-                // Ignore straggling progress chunks after terminal event
+                // Guard: ignore progress chunks that arrive after a complete/error
+                // event. Without this, straggling chunks append to streamingText
+                // AFTER handleComplete has already set it to the final joined
+                // response, causing a text divergence that triggers the animation
+                // guard in useAnimatedText. See: docs/streaming-animation.md
                 if (!handledTerminal) {
                   setStreamingText((prev) => prev + parsed.text);
                 }

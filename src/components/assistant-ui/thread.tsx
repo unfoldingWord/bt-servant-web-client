@@ -404,8 +404,31 @@ function useAnimatedText(
       // New text is shorter than what we've shown — clamp to end
       setDisplayedLength(text.length);
     } else if (!text.startsWith(prevText.slice(0, displayedLength))) {
-      // Content diverged from what was displayed — snap to end to avoid
-      // replaying the entire response from scratch.
+      // ⚠️  CRITICAL FIX — DO NOT change text.length back to 0. ⚠️
+      //
+      // When handleComplete() replaces the accumulated streaming chunks with
+      // the final joined response (data.responses.join("\n\n")), the new text
+      // may not be a prefix-compatible continuation of the old text. This
+      // guard detects that divergence.
+      //
+      // Setting displayedLength to 0 here causes the ENTIRE response to
+      // re-animate from the first character, making it look like the stream
+      // restarts from the beginning — a confirmed production bug that was
+      // fixed twice (v1.3.1 and v1.3.2).
+      //
+      // Setting displayedLength to text.length snaps the display to the full
+      // text immediately. The user has already seen most/all of the content
+      // via streaming, so showing it all at once is seamless, whereas
+      // replaying from zero is jarring and broken.
+      //
+      // History:
+      //   - v1.3.1 (4c1a5dd): Removed divergence guard entirely to fix replay
+      //   - PR #9 (7cfefe7): Re-added guard with setDisplayedLength(0) to
+      //     prevent garbled text, inadvertently reintroducing the replay bug
+      //   - v1.3.2 (PR #10): Changed to setDisplayedLength(text.length) —
+      //     prevents both garbled text AND replay
+      //
+      // See: docs/streaming-animation.md
       setDisplayedLength(text.length);
     }
     // Otherwise text grew or was replaced with compatible prefix — keep position
