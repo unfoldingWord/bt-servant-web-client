@@ -3,6 +3,7 @@
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { APP_VERSION } from "@/lib/version";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
 export default function LoginPage() {
@@ -135,7 +136,7 @@ export default function LoginPage() {
 
             {/* Footer */}
             <p className="mt-3 text-center font-sans text-[10px] text-[#8a8985] dark:text-[#6b6a68]">
-              BT Servant Web v1.4.0
+              {APP_VERSION}
             </p>
           </div>
         </div>

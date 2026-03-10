@@ -5,6 +5,7 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { APP_VERSION } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import {
   ActionBarPrimitive,
@@ -200,7 +201,7 @@ export const Thread: FC = () => {
           />
           <Composer />
           <p className="mt-2 text-center font-sans text-xs text-[#9a9893]">
-            BT Servant Web v1.4.0
+            {APP_VERSION}
           </p>
         </div>
       </AssistantIf>
@@ -283,7 +284,7 @@ const ThreadWelcome: FC = () => {
       {/* Footer */}
       <div className="shrink-0 pb-4">
         <p className="text-center font-sans text-xs text-[#9a9893]">
-          BT Servant Web v1.4.0
+          {APP_VERSION}
         </p>
       </div>
     </div>
