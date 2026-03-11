@@ -501,6 +501,7 @@ const AssistantMessage: FC = () => {
     const firstPart = message.content[0];
     return firstPart?.type === "text" ? firstPart.text : "";
   });
+  const isLast = useAssistantState(({ message }) => message.isLast);
 
   const handleAnimationCaughtUp = useCallback(() => {
     finalizeComplete();
@@ -551,14 +552,14 @@ const AssistantMessage: FC = () => {
             </ActionBarPrimitive.Root>
           </div>
         </>
-      ) : (
-        // Neither audio nor text: show error
+      ) : isLast ? (
+        // Neither audio nor text on the latest message: show error
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
             Sorry, I couldn&apos;t deliver a response. Please try again.
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
