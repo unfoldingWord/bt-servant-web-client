@@ -225,7 +225,7 @@ export function useChatRuntime() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: text,
+            message: text || (audioBase64 ? "[Voice message]" : ""),
             message_type: audioBase64 ? "audio" : "text",
             audio_base64: audioBase64,
             audio_format: audioFormat,
