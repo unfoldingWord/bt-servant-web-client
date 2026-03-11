@@ -137,7 +137,20 @@ export function useChatRuntime() {
   // Finalize a pending completion — called by AnimatedText when animation catches up
   const finalizeComplete = useCallback(() => {
     const pending = pendingCompleteRef.current;
-    if (!pending) return;
+    if (!pending) {
+      console.warn("[finalizeComplete] called but no pending message");
+      return;
+    }
+
+    const hasAudio = !!pending.message.audioBase64;
+    const textLen =
+      pending.message.content[0]?.type === "text"
+        ? pending.message.content[0].text.length
+        : 0;
+    console.log("[finalizeComplete] swapping in message", {
+      hasAudio,
+      textLen,
+    });
 
     pendingCompleteRef.current = null;
     // React 18+ auto-batches these into a single render
@@ -152,6 +165,16 @@ export function useChatRuntime() {
   const handleComplete = useCallback((data: ChatResponse) => {
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
+    const hasAudio = !!data.voice_audio_base64;
+
+    console.log("[handleComplete]", {
+      hasAudio,
+      responseCount: data.responses.length,
+      responseLengths: data.responses.map((r) => r.length),
+      joinedLen: joinedResponse.length,
+      streamingLen: currentStreaming.length,
+      audioLen: data.voice_audio_base64?.length ?? 0,
+    });
 
     const assistantMessage = createMessage(
       `assistant-${Date.now()}`,
@@ -162,6 +185,7 @@ export function useChatRuntime() {
 
     // If no streaming text was accumulated, swap immediately
     if (!currentStreaming) {
+      console.log("[handleComplete] immediate swap (no streaming text)");
       setMessages((prev) => [...prev, assistantMessage]);
       setIsLoading(false);
       setStatusMessage(null);
@@ -172,6 +196,7 @@ export function useChatRuntime() {
     // Defer swap: update streaming text to the full response so AnimatedText
     // can animate the remaining characters, then finalizeComplete swaps in
     // the permanent message once the animation catches up.
+    console.log("[handleComplete] deferred swap (streaming text present)");
     pendingCompleteRef.current = { message: assistantMessage };
     setStreamingText(joinedResponse);
     setIsCompleting(true);
@@ -179,6 +204,7 @@ export function useChatRuntime() {
   }, []);
 
   const handleError = useCallback((errorMessage: string) => {
+    console.error("[handleError]", errorMessage);
     pendingCompleteRef.current = null;
     setIsCompleting(false);
     setMessages((prev) => [
@@ -246,6 +272,12 @@ export function useChatRuntime() {
         if (!message_id) {
           throw new Error("No message_id returned");
         }
+        console.log("[sendMessage] enqueued", {
+          message_id,
+          isAudio: !!audioBase64,
+          audioFormat,
+          textLen: text.length,
+        });
 
         // Step 2: Poll for events from the browser
         let cursor = 0;
@@ -278,6 +310,7 @@ export function useChatRuntime() {
               const parsed: SSEEvent = JSON.parse(event.data);
 
               if (parsed.type === "status") {
+                console.log("[poll] status:", parsed.message);
                 setStatusMessage(parsed.message);
               } else if (parsed.type === "progress") {
                 // Guard: ignore progress chunks that arrive after a complete/error
@@ -286,24 +319,44 @@ export function useChatRuntime() {
                 // response, causing a text divergence that triggers the animation
                 // guard in useAnimatedText. See: docs/streaming-animation.md
                 if (!handledTerminal) {
+                  console.log(
+                    "[poll] progress chunk:",
+                    parsed.text.length,
+                    "chars"
+                  );
                   setStreamingText((prev) => prev + parsed.text);
+                } else {
+                  console.warn(
+                    "[poll] ignoring late progress chunk after terminal event"
+                  );
                 }
               } else if (parsed.type === "complete") {
+                console.log("[poll] complete event received", {
+                  hasAudio: !!parsed.response.voice_audio_base64,
+                  responses: parsed.response.responses.length,
+                });
                 handleComplete(parsed.response);
                 handledTerminal = true;
               } else if (parsed.type === "error") {
+                console.error("[poll] error event:", parsed.error);
                 handleError(parsed.error);
                 handledTerminal = true;
+              } else {
+                console.warn("[poll] unknown event type:", parsed.type);
               }
-            } catch {
-              // Ignore parse errors for individual events
+            } catch (e) {
+              console.error("[poll] failed to parse event:", event, e);
             }
           }
 
           cursor = pollData.cursor;
 
           if (pollData.done) {
+            console.log("[poll] done", { handledTerminal, cursor });
             if (!handledTerminal) {
+              console.warn(
+                "[poll] done but no terminal event was handled — resetting isLoading"
+              );
               setIsLoading(false);
               setStatusMessage(null);
             }
