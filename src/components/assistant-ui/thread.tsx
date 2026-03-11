@@ -506,47 +506,57 @@ const AssistantMessage: FC = () => {
     finalizeComplete();
   }, [finalizeComplete]);
 
+  const hasAudio = !isStreaming && !!audioBase64;
+  const hasText = !!messageText;
+
   return (
     <div className="relative mb-8 pl-2">
-      {/* Clean text display - no bubble */}
-      <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
-        {isStreaming ? (
+      {hasAudio ? (
+        // Audio-only: show AudioPlayer, hide text and action bar
+        <div className="mt-2">
+          <AudioPlayer audioBase64={audioBase64} />
+        </div>
+      ) : isStreaming ? (
+        // Streaming: show animated text (audio may arrive on complete)
+        <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <AnimatedText
             text={messageText}
             isCompleting={isCompleting}
             onAnimationCaughtUp={handleAnimationCaughtUp}
           />
-        ) : (
-          <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
-        )}
-      </div>
-
-      {/* Audio player for voice responses */}
-      {audioBase64 && (
-        <div className="mt-2">
-          <AudioPlayer audioBase64={audioBase64} />
         </div>
-      )}
+      ) : hasText ? (
+        // Text fallback: render as before with action bar
+        <>
+          <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
+            <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+          </div>
 
-      {/* Action bar - only show when not streaming */}
-      {!isStreaming && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0">
-          <ActionBarPrimitive.Root
-            hideWhenRunning
-            autohide="not-last"
-            className="pointer-events-auto flex w-full translate-y-full flex-col items-end pt-2 transition"
-          >
-            <div className="flex items-center text-[#6b6a68] dark:text-[#9a9893]">
-              <ActionBarPrimitive.Copy className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
-                <ClipboardIcon width={20} height={20} />
-              </ActionBarPrimitive.Copy>
-            </div>
-            <AssistantIf condition={({ message }) => message.isLast}>
-              <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
-                BT Servant can make mistakes. Please double-check responses.
-              </p>
-            </AssistantIf>
-          </ActionBarPrimitive.Root>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0">
+            <ActionBarPrimitive.Root
+              hideWhenRunning
+              autohide="not-last"
+              className="pointer-events-auto flex w-full translate-y-full flex-col items-end pt-2 transition"
+            >
+              <div className="flex items-center text-[#6b6a68] dark:text-[#9a9893]">
+                <ActionBarPrimitive.Copy className="flex h-8 w-8 items-center justify-center rounded-md transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] hover:bg-transparent active:scale-95">
+                  <ClipboardIcon width={20} height={20} />
+                </ActionBarPrimitive.Copy>
+              </div>
+              <AssistantIf condition={({ message }) => message.isLast}>
+                <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
+                  BT Servant can make mistakes. Please double-check responses.
+                </p>
+              </AssistantIf>
+            </ActionBarPrimitive.Root>
+          </div>
+        </>
+      ) : (
+        // Neither audio nor text: show error
+        <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
+          <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
+            Sorry, I couldn&apos;t deliver a response. Please try again.
+          </p>
         </div>
       )}
     </div>
