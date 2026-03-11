@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       return new Response(
         JSON.stringify({
           error: `Enqueue error: ${enqueueResponse.status}`,
+          details: errorText,
         }),
         {
           status: enqueueResponse.status,
