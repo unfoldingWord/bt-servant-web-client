@@ -473,6 +473,9 @@ const AnimatedText: FC<{
 
   useEffect(() => {
     if (isCompleting && isAnimationDone && !calledRef.current) {
+      console.log(
+        "[AnimatedText] animation caught up, calling finalizeComplete"
+      );
       calledRef.current = true;
       onAnimationCaughtUp();
     }
@@ -509,6 +512,26 @@ const AssistantMessage: FC = () => {
 
   const hasAudio = !isStreaming && !!audioBase64;
   const hasText = !!messageText;
+
+  useEffect(() => {
+    console.log("[AssistantMessage] render state", {
+      hasAudio,
+      hasText,
+      isStreaming,
+      isCompleting,
+      audioLen: audioBase64?.length ?? 0,
+      textLen: messageText.length,
+      isLast,
+    });
+  }, [
+    hasAudio,
+    hasText,
+    isStreaming,
+    isCompleting,
+    audioBase64,
+    messageText,
+    isLast,
+  ]);
 
   return (
     <div className="relative mb-8 pl-2">
