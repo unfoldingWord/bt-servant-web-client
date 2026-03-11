@@ -234,7 +234,12 @@ export function useChatRuntime() {
         });
 
         if (!enqueueResponse.ok) {
-          throw new Error("Failed to send message");
+          const errorBody = await enqueueResponse.text();
+          console.error("[sendMessage] enqueue failed", {
+            status: enqueueResponse.status,
+            body: errorBody,
+          });
+          throw new Error(`Failed to send message (${enqueueResponse.status})`);
         }
 
         const { message_id } = await enqueueResponse.json();
@@ -322,6 +327,7 @@ export function useChatRuntime() {
           setStatusMessage(null);
           return;
         }
+        console.error("[sendMessage] error", error);
         handleError("Sorry, I encountered an error. Please try again.");
       } finally {
         abortControllerRef.current = null;

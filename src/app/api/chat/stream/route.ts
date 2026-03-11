@@ -29,11 +29,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     parsed = ChatStreamRequestSchema.parse(body);
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid request" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+  } catch (error) {
+    console.error("[chat/stream] parse error", error);
+    return new Response(
+      JSON.stringify({
+        error: "Invalid request",
+        details: error instanceof Error ? error.message : String(error),
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 
   // Enqueue message
