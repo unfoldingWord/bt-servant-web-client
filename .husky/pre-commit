@@ -1,5 +1,14 @@
 #!/usr/bin/env sh
 
+echo "Running secret scan..."
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --no-banner --exit-code 1 || exit 1
+elif [ -x "$HOME/.local/bin/gitleaks" ]; then
+  "$HOME/.local/bin/gitleaks" git --staged --no-banner --exit-code 1 || exit 1
+else
+  echo "WARNING: gitleaks not found — skipping secret scan"
+fi
+
 # Run lint-staged (eslint + prettier on changed files)
 npx lint-staged
 
