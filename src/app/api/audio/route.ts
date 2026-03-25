@@ -55,17 +55,6 @@ export async function GET(req: NextRequest) {
       headers: { Authorization: `Bearer ${ENGINE_API_KEY}` },
     });
 
-    // Log all upstream response headers for debugging
-    const upstreamHeaders: Record<string, string> = {};
-    audioResponse.headers.forEach((value, key) => {
-      upstreamHeaders[key] = value;
-    });
-    console.log("[audio proxy] upstream response", {
-      status: audioResponse.status,
-      url: audioUrl,
-      headers: upstreamHeaders,
-    });
-
     if (!audioResponse.ok) {
       return new Response(
         JSON.stringify({ error: `Audio fetch error: ${audioResponse.status}` }),
@@ -88,21 +77,14 @@ export async function GET(req: NextRequest) {
 
     const filename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
 
-    const responseHeaders = {
-      "Content-Type": contentType,
-      "Cache-Control": cacheControl,
-      "Content-Disposition": `inline; filename="${filename}"`,
-      "Content-Length": String(audioBuffer.byteLength),
-    };
-
-    console.log("[audio proxy] sending response", {
-      bufferBytes: audioBuffer.byteLength,
-      responseHeaders,
-    });
-
     return new Response(audioBuffer, {
       status: 200,
-      headers: responseHeaders,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": cacheControl,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Length": String(audioBuffer.byteLength),
+      },
     });
   } catch {
     return new Response(JSON.stringify({ error: "Failed to fetch audio" }), {

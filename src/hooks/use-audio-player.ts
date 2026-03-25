@@ -44,52 +44,31 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     audio.preload = "auto";
     audio.src = src;
 
-    // DEBUG: log all audio element events to diagnose duration issue
-    audio.onloadstart = () =>
-      console.log("[audio] loadstart", {
-        duration: audio.duration,
-        readyState: audio.readyState,
-        networkState: audio.networkState,
-      });
-    audio.onloadedmetadata = () =>
-      console.log("[audio] loadedmetadata", {
-        duration: audio.duration,
-        seekable:
-          audio.seekable.length > 0
-            ? `${audio.seekable.start(0)}-${audio.seekable.end(0)}`
-            : "empty",
-      });
-    audio.onloadeddata = () =>
-      console.log("[audio] loadeddata", { duration: audio.duration });
-    audio.oncanplay = () =>
-      console.log("[audio] canplay", { duration: audio.duration });
-    audio.oncanplaythrough = () =>
-      console.log("[audio] canplaythrough", { duration: audio.duration });
-    audio.ondurationchange = () =>
-      console.log("[audio] durationchange", {
-        duration: audio.duration,
-        isFinite: isFinite(audio.duration),
-      });
-
-    audio.ontimeupdate = () => {
+    // MP3s from TTS may lack duration metadata (no Xing/Info frame).
+    // The browser reports Infinity until it finishes decoding the file.
+    // We update duration from every event that might resolve it.
+    const tryUpdateDuration = () => {
       if (isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
+    };
+
+    audio.ondurationchange = tryUpdateDuration;
+    audio.onloadedmetadata = tryUpdateDuration;
+    audio.onloadeddata = tryUpdateDuration;
+    audio.oncanplaythrough = tryUpdateDuration;
+
+    audio.ontimeupdate = () => {
+      tryUpdateDuration();
       setCurrentTime(audio.currentTime);
     };
 
     audio.onplay = () => setIsPlaying(true);
     audio.onpause = () => setIsPlaying(false);
     audio.onended = () => {
-      console.log("[audio] ended", {
-        duration: audio.duration,
-        isFinite: isFinite(audio.duration),
-      });
+      tryUpdateDuration();
       setIsPlaying(false);
       setCurrentTime(0);
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-      }
     };
 
     audio.onerror = (e) => {

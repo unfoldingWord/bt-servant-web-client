@@ -71,8 +71,10 @@ export function AudioPlayer({
     }
   };
 
+  const hasDuration = duration > 0 && isFinite(duration);
+
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressRef.current || duration === 0) return;
+    if (!progressRef.current || !hasDuration) return;
     const rect = progressRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const percentage = clickX / rect.width;
@@ -81,13 +83,13 @@ export function AudioPlayer({
   };
 
   const formatTime = (seconds: number) => {
-    if (!isFinite(seconds)) return "0:00";
+    if (!isFinite(seconds) || seconds < 0) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress = hasDuration ? (currentTime / duration) * 100 : 0;
 
   return (
     <div
@@ -111,7 +113,10 @@ export function AudioPlayer({
 
       <div
         ref={progressRef}
-        className="flex-1 cursor-pointer py-2"
+        className={cn(
+          "flex-1 py-2",
+          hasDuration ? "cursor-pointer" : "cursor-default"
+        )}
         onClick={handleProgressClick}
       >
         <div className="h-1.5 overflow-hidden rounded-full bg-[#DDD9CE] dark:bg-[#4a4a47]">
@@ -123,7 +128,9 @@ export function AudioPlayer({
       </div>
 
       <span className="min-w-[40px] font-sans text-xs text-[#6b6a68] dark:text-[#9a9893]">
-        {formatTime(currentTime)} / {formatTime(duration)}
+        {hasDuration
+          ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+          : formatTime(currentTime)}
       </span>
 
       <Volume2Icon className="size-4 text-[#6b6a68] dark:text-[#9a9893]" />
