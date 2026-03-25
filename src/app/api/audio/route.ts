@@ -23,8 +23,19 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // SSRF prevention: only allow URLs pointing to our engine
-  if (!audioUrl.startsWith(ENGINE_BASE_URL)) {
+  // SSRF prevention: only allow URLs pointing to our engine (origin comparison
+  // prevents bypass via e.g. https://engine.example.com.evil.com/path)
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(audioUrl);
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid audio URL" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (parsedUrl.origin !== new URL(ENGINE_BASE_URL).origin) {
     return new Response(JSON.stringify({ error: "Invalid audio URL" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -52,11 +63,15 @@ export async function GET(req: NextRequest) {
     const cacheControl =
       audioResponse.headers.get("Cache-Control") || "public, max-age=86400";
 
+    // Extract filename from URL path for Content-Disposition
+    const filename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
+
     return new Response(audioResponse.body, {
       status: 200,
       headers: {
         "Content-Type": contentType,
         "Cache-Control": cacheControl,
+        "Content-Disposition": `inline; filename="${filename}"`,
       },
     });
   } catch {

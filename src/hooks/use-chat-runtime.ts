@@ -53,18 +53,16 @@ function createMessage(
   id: string,
   role: "user" | "assistant",
   content: string,
-  audioBase64?: string,
-  isStreaming?: boolean,
-  audioUrl?: string
+  opts?: { audioBase64?: string; audioUrl?: string; isStreaming?: boolean }
 ): ChatMessage {
   return {
     id,
     role,
     content: [{ type: "text" as const, text: content }],
     createdAt: new Date(),
-    audioBase64,
-    audioUrl,
-    isStreaming,
+    audioBase64: opts?.audioBase64,
+    audioUrl: opts?.audioUrl,
+    isStreaming: opts?.isStreaming,
   };
 }
 
@@ -151,7 +149,8 @@ export function useChatRuntime() {
       return;
     }
 
-    const hasAudio = !!pending.message.audioBase64;
+    const hasAudio =
+      !!pending.message.audioBase64 || !!pending.message.audioUrl;
     const textLen =
       pending.message.content[0]?.type === "text"
         ? pending.message.content[0].text.length
@@ -195,9 +194,10 @@ export function useChatRuntime() {
       `assistant-${Date.now()}`,
       "assistant",
       joinedResponse,
-      data.voice_audio_base64 || undefined,
-      undefined,
-      audioUrl
+      {
+        audioBase64: data.voice_audio_base64 || undefined,
+        audioUrl,
+      }
     );
 
     // For audio requests or when no streaming text was shown, swap immediately.
@@ -353,7 +353,12 @@ export function useChatRuntime() {
                 console.log("[poll] status:", parsed.message);
                 setStatusMessage(parsed.message);
                 // TTS can take minutes for long responses — extend inactivity window
-                if (parsed.message.toLowerCase().includes("generating audio")) {
+                const statusLower = parsed.message.toLowerCase();
+                if (
+                  statusLower.includes("audio") ||
+                  statusLower.includes("tts") ||
+                  statusLower.includes("speech")
+                ) {
                   inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
                 }
               } else if (parsed.type === "progress") {
@@ -428,6 +433,8 @@ export function useChatRuntime() {
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           setIsLoading(false);
+          setIsAudioRequest(false);
+          isAudioRequestRef.current = false;
           setStatusMessage(null);
           return;
         }
@@ -449,8 +456,7 @@ export function useChatRuntime() {
         "streaming",
         "assistant",
         streamingText,
-        undefined,
-        true
+        { isStreaming: true }
       );
       return [...messages, streamingMessage];
     }

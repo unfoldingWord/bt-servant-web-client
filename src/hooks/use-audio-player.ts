@@ -19,6 +19,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   const [duration, setDuration] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentSrcRef = useRef<string | null>(null);
 
   // Clean up on unmount
   useEffect(() => {
@@ -30,55 +31,15 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     };
   }, []);
 
-  const play = useCallback((base64Audio: string, format: string = "mp3") => {
-    // Stop any existing playback
-    if (audioRef.current) {
-      audioRef.current.pause();
+  const startAudio = useCallback((src: string) => {
+    // Resume if same source is paused
+    if (audioRef.current && currentSrcRef.current === src) {
+      audioRef.current.play().catch((error) => {
+        console.error("Failed to play audio:", error);
+      });
+      return;
     }
 
-    // Create audio element
-    const audio = new Audio();
-    audioRef.current = audio;
-
-    // Set source from base64
-    const mimeType =
-      format === "mp3"
-        ? "audio/mpeg"
-        : format === "ogg"
-          ? "audio/ogg"
-          : format === "webm"
-            ? "audio/webm"
-            : "audio/mpeg";
-    audio.src = `data:${mimeType};base64,${base64Audio}`;
-
-    // Event handlers
-    audio.onloadedmetadata = () => {
-      setDuration(audio.duration);
-    };
-
-    audio.ontimeupdate = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    audio.onplay = () => setIsPlaying(true);
-    audio.onpause = () => setIsPlaying(false);
-    audio.onended = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    audio.onerror = (e) => {
-      console.error("Audio playback error:", e);
-      setIsPlaying(false);
-    };
-
-    // Start playback
-    audio.play().catch((error) => {
-      console.error("Failed to play audio:", error);
-    });
-  }, []);
-
-  const playUrl = useCallback((url: string) => {
     // Stop any existing playback
     if (audioRef.current) {
       audioRef.current.pause();
@@ -86,7 +47,8 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
 
     const audio = new Audio();
     audioRef.current = audio;
-    audio.src = url;
+    currentSrcRef.current = src;
+    audio.src = src;
 
     audio.onloadedmetadata = () => {
       setDuration(audio.duration);
@@ -112,6 +74,28 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       console.error("Failed to play audio:", error);
     });
   }, []);
+
+  const play = useCallback(
+    (base64Audio: string, format: string = "mp3") => {
+      const mimeType =
+        format === "mp3"
+          ? "audio/mpeg"
+          : format === "ogg"
+            ? "audio/ogg"
+            : format === "webm"
+              ? "audio/webm"
+              : "audio/mpeg";
+      startAudio(`data:${mimeType};base64,${base64Audio}`);
+    },
+    [startAudio]
+  );
+
+  const playUrl = useCallback(
+    (url: string) => {
+      startAudio(url);
+    },
+    [startAudio]
+  );
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
