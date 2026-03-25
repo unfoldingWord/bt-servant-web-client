@@ -7,6 +7,7 @@ interface UseAudioPlayerReturn {
   currentTime: number;
   duration: number;
   play: (base64Audio: string, format?: string) => void;
+  playUrl: (url: string) => void;
   pause: () => void;
   stop: () => void;
   seek: (time: number) => void;
@@ -77,6 +78,41 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     });
   }, []);
 
+  const playUrl = useCallback((url: string) => {
+    // Stop any existing playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio();
+    audioRef.current = audio;
+    audio.src = url;
+
+    audio.onloadedmetadata = () => {
+      setDuration(audio.duration);
+    };
+
+    audio.ontimeupdate = () => {
+      setCurrentTime(audio.currentTime);
+    };
+
+    audio.onplay = () => setIsPlaying(true);
+    audio.onpause = () => setIsPlaying(false);
+    audio.onended = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    audio.onerror = (e) => {
+      console.error("Audio playback error:", e);
+      setIsPlaying(false);
+    };
+
+    audio.play().catch((error) => {
+      console.error("Failed to play audio:", error);
+    });
+  }, []);
+
   const pause = useCallback(() => {
     audioRef.current?.pause();
   }, []);
@@ -101,6 +137,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     currentTime,
     duration,
     play,
+    playUrl,
     pause,
     stop,
     seek,

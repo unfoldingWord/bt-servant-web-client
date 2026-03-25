@@ -16,6 +16,7 @@ export interface ChatResponse {
   responses: string[];
   response_language: string;
   voice_audio_base64: string | null;
+  voice_audio_url?: string;
 }
 
 export interface UserPreferences {
@@ -27,6 +28,7 @@ export interface ChatHistoryEntry {
   assistant_response: string;
   timestamp?: number;
   created_at?: string | null;
+  voice_audio_url?: string | null;
 }
 
 export interface ChatHistoryResponse {

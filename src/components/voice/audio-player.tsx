@@ -7,7 +7,8 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface AudioPlayerProps {
-  audioBase64: string;
+  audioBase64?: string;
+  audioUrl?: string;
   format?: string;
   autoPlay?: boolean;
   className?: string;
@@ -15,25 +16,35 @@ interface AudioPlayerProps {
 
 export function AudioPlayer({
   audioBase64,
+  audioUrl,
   format = "mp3",
   autoPlay = false,
   className,
 }: AudioPlayerProps) {
-  const { isPlaying, currentTime, duration, play, pause, seek } =
+  const { isPlaying, currentTime, duration, play, playUrl, pause, seek } =
     useAudioPlayer();
   const progressRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (autoPlay) {
+  const startPlayback = () => {
+    if (audioUrl) {
+      playUrl(audioUrl);
+    } else if (audioBase64) {
       play(audioBase64, format);
     }
-  }, [audioBase64, format, autoPlay, play]);
+  };
+
+  useEffect(() => {
+    if (autoPlay) {
+      startPlayback();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioBase64, audioUrl, format, autoPlay]);
 
   const handleToggle = () => {
     if (isPlaying) {
       pause();
     } else {
-      play(audioBase64, format);
+      startPlayback();
     }
   };
 
