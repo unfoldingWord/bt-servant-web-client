@@ -23,11 +23,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // SSRF prevention: only allow URLs pointing to our engine (origin comparison
-  // prevents bypass via e.g. https://engine.example.com.evil.com/path)
-  let parsedUrl: URL;
+  // Extract the path from the provided URL (which may be an internal DO URL
+  // like http://do-internal/api/v1/audio/...) and re-root it on ENGINE_BASE_URL.
+  // This prevents SSRF — we never fetch the provided host, only our engine.
+  let audioPath: string;
   try {
-    parsedUrl = new URL(audioUrl);
+    const parsed = new URL(audioUrl);
+    audioPath = parsed.pathname + parsed.search;
   } catch {
     return new Response(JSON.stringify({ error: "Invalid audio URL" }), {
       status: 400,
@@ -35,15 +37,18 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  if (parsedUrl.origin !== new URL(ENGINE_BASE_URL).origin) {
-    return new Response(JSON.stringify({ error: "Invalid audio URL" }), {
+  // Sanity check: path must start with /api/v1/audio/
+  if (!audioPath.startsWith("/api/v1/audio/")) {
+    return new Response(JSON.stringify({ error: "Invalid audio path" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
 
+  const fetchUrl = `${ENGINE_BASE_URL}${audioPath}`;
+
   try {
-    const audioResponse = await fetch(audioUrl, {
+    const audioResponse = await fetch(fetchUrl, {
       headers: { Authorization: `Bearer ${ENGINE_API_KEY}` },
     });
 
@@ -63,8 +68,7 @@ export async function GET(req: NextRequest) {
     const cacheControl =
       audioResponse.headers.get("Cache-Control") || "public, max-age=86400";
 
-    // Extract filename from URL path for Content-Disposition
-    const filename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
+    const filename = audioPath.split("/").pop() || "audio.mp3";
 
     return new Response(audioResponse.body, {
       status: 200,
