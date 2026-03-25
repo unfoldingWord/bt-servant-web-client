@@ -70,13 +70,21 @@ export async function GET(req: NextRequest) {
 
     const filename = audioPath.split("/").pop() || "audio.mp3";
 
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": cacheControl,
+      "Content-Disposition": `inline; filename="${filename}"`,
+    };
+
+    // Forward Content-Length so the browser can determine audio duration
+    const contentLength = audioResponse.headers.get("Content-Length");
+    if (contentLength) {
+      headers["Content-Length"] = contentLength;
+    }
+
     return new Response(audioResponse.body, {
       status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": cacheControl,
-        "Content-Disposition": `inline; filename="${filename}"`,
-      },
+      headers,
     });
   } catch {
     return new Response(JSON.stringify({ error: "Failed to fetch audio" }), {

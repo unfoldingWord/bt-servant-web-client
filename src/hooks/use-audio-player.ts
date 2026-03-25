@@ -44,8 +44,12 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     audio.preload = "auto";
     audio.src = src;
 
-    audio.onloadedmetadata = () => {
-      setDuration(audio.duration);
+    // Use durationchange instead of loadedmetadata — for streamed audio,
+    // duration may not be available until after metadata loads
+    audio.ondurationchange = () => {
+      if (isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
     };
 
     audio.ontimeupdate = () => {
@@ -129,7 +133,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   }, []);
 
   const seek = useCallback((time: number) => {
-    if (audioRef.current) {
+    if (audioRef.current && isFinite(time)) {
       audioRef.current.currentTime = time;
       setCurrentTime(time);
     }
