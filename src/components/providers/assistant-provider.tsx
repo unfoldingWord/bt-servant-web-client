@@ -11,6 +11,7 @@ interface ChatContextValue {
     audioFormat?: string
   ) => Promise<void>;
   isLoading: boolean;
+  isAudioRequest: boolean;
   statusMessage: string | null;
   streamingText: string;
   finalizeComplete: () => void;
@@ -31,6 +32,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     runtime,
     sendMessage,
     isLoading,
+    isAudioRequest,
     statusMessage,
     streamingText,
     finalizeComplete,
@@ -42,6 +44,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
       value={{
         sendMessage,
         isLoading,
+        isAudioRequest,
         statusMessage,
         streamingText,
         finalizeComplete,

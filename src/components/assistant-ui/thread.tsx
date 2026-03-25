@@ -136,10 +136,13 @@ const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
 };
 
 const LoadingIndicator: FC = () => {
-  const { isLoading, statusMessage, streamingText } = useChatContext();
+  const { isLoading, statusMessage, streamingText, isAudioRequest } =
+    useChatContext();
 
-  // Only show loading indicator when loading and no streaming text yet
-  if (!isLoading || streamingText) return null;
+  // Show loading indicator when loading and either:
+  // - no streaming text yet (text requests), or
+  // - audio request (streaming text is hidden, so keep showing status)
+  if (!isLoading || (streamingText && !isAudioRequest)) return null;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-2">
@@ -492,9 +495,12 @@ const AnimatedText: FC<{
 };
 
 const AssistantMessage: FC = () => {
-  const { finalizeComplete, isCompleting } = useChatContext();
+  const { finalizeComplete, isCompleting, isLoading } = useChatContext();
   const audioBase64 = useAssistantState(
     ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
+  );
+  const audioUrl = useAssistantState(
+    ({ message }) => message.metadata?.custom?.audioUrl as string | undefined
   );
   const isStreaming = useAssistantState(
     ({ message }) =>
@@ -510,38 +516,33 @@ const AssistantMessage: FC = () => {
     finalizeComplete();
   }, [finalizeComplete]);
 
-  const hasAudio = !isStreaming && !!audioBase64;
-  const hasText = !!messageText;
+  const [showTranscript, setShowTranscript] = useState(false);
 
-  useEffect(() => {
-    console.log("[AssistantMessage] render state", {
-      hasAudio,
-      hasText,
-      isStreaming,
-      isCompleting,
-      audioLen: audioBase64?.length ?? 0,
-      textLen: messageText.length,
-      isLast,
-    });
-  }, [
-    hasAudio,
-    hasText,
-    isStreaming,
-    isCompleting,
-    audioBase64,
-    messageText,
-    isLast,
-  ]);
+  const hasAudio = !isStreaming && (!!audioBase64 || !!audioUrl);
+  const hasText = !!messageText;
 
   return (
     <div className="relative mb-8 pl-2">
       {hasAudio ? (
-        // Audio-only: show AudioPlayer, hide text and action bar
         <div className="mt-2">
-          <AudioPlayer audioBase64={audioBase64} />
+          <AudioPlayer audioBase64={audioBase64} audioUrl={audioUrl} />
+          {hasText && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowTranscript((prev) => !prev)}
+                className="font-sans text-[0.75rem] text-[#8a8985] transition-colors hover:text-[#6b6a68] dark:text-[#9a9893] dark:hover:text-[#b8b5a9]"
+              >
+                {showTranscript ? "Hide transcript" : "Show transcript"}
+              </button>
+              {showTranscript && (
+                <div className="prose prose-neutral dark:prose-invert mt-2 max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
+                  <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : isStreaming ? (
-        // Streaming: show animated text (audio may arrive on complete)
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <AnimatedText
             text={messageText}
@@ -550,7 +551,6 @@ const AssistantMessage: FC = () => {
           />
         </div>
       ) : hasText ? (
-        // Text fallback: render as before with action bar
         <>
           <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
             <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
@@ -575,8 +575,7 @@ const AssistantMessage: FC = () => {
             </ActionBarPrimitive.Root>
           </div>
         </>
-      ) : isLast ? (
-        // Neither audio nor text on the latest message: show error
+      ) : isLast && !isLoading ? (
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
             Sorry, I couldn&apos;t deliver a response. Please try again.

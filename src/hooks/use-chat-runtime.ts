@@ -17,6 +17,7 @@ interface ChatMessage {
   content: Array<{ type: "text"; text: string }>;
   createdAt: Date;
   audioBase64?: string;
+  audioUrl?: string;
   isStreaming?: boolean;
 }
 
@@ -29,6 +30,7 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
     metadata: {
       custom: {
         audioBase64: message.audioBase64,
+        audioUrl: message.audioUrl,
         isStreaming: message.isStreaming,
       },
     },
@@ -51,16 +53,16 @@ function createMessage(
   id: string,
   role: "user" | "assistant",
   content: string,
-  audioBase64?: string,
-  isStreaming?: boolean
+  opts?: { audioBase64?: string; audioUrl?: string; isStreaming?: boolean }
 ): ChatMessage {
   return {
     id,
     role,
     content: [{ type: "text" as const, text: content }],
     createdAt: new Date(),
-    audioBase64,
-    isStreaming,
+    audioBase64: opts?.audioBase64,
+    audioUrl: opts?.audioUrl,
+    isStreaming: opts?.isStreaming,
   };
 }
 
@@ -69,6 +71,8 @@ export function useChatRuntime() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
+  const [isAudioRequest, setIsAudioRequest] = useState(false);
+  const isAudioRequestRef = useRef(false);
   const historyLoadedRef = useRef(false);
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -113,6 +117,9 @@ export function useChatRuntime() {
           role: "assistant",
           content: [{ type: "text" as const, text: entry.assistant_response }],
           createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
+          audioUrl: entry.voice_audio_url
+            ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
+            : undefined,
         });
       });
 
@@ -142,7 +149,8 @@ export function useChatRuntime() {
       return;
     }
 
-    const hasAudio = !!pending.message.audioBase64;
+    const hasAudio =
+      !!pending.message.audioBase64 || !!pending.message.audioUrl;
     const textLen =
       pending.message.content[0]?.type === "text"
         ? pending.message.content[0].text.length
@@ -156,6 +164,7 @@ export function useChatRuntime() {
     // React 18+ auto-batches these into a single render
     setIsCompleting(false);
     setIsLoading(false);
+    setIsAudioRequest(false);
     setStatusMessage(null);
     setMessages((prev) => [...prev, pending.message]);
     setStreamingText("");
@@ -165,7 +174,7 @@ export function useChatRuntime() {
   const handleComplete = useCallback((data: ChatResponse) => {
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
-    const hasAudio = !!data.voice_audio_base64;
+    const hasAudio = !!data.voice_audio_base64 || !!data.voice_audio_url;
 
     console.log("[handleComplete]", {
       hasAudio,
@@ -174,20 +183,36 @@ export function useChatRuntime() {
       joinedLen: joinedResponse.length,
       streamingLen: currentStreaming.length,
       audioLen: data.voice_audio_base64?.length ?? 0,
+      audioUrl: data.voice_audio_url ?? null,
     });
+
+    const audioUrl = data.voice_audio_url
+      ? `/api/audio?url=${encodeURIComponent(data.voice_audio_url)}`
+      : undefined;
 
     const assistantMessage = createMessage(
       `assistant-${Date.now()}`,
       "assistant",
       joinedResponse,
-      data.voice_audio_base64 || undefined
+      {
+        audioBase64: data.voice_audio_base64 || undefined,
+        audioUrl,
+      }
     );
 
-    // If no streaming text was accumulated, swap immediately
-    if (!currentStreaming) {
-      console.log("[handleComplete] immediate swap (no streaming text)");
+    // For audio requests or when no streaming text was shown, swap immediately.
+    // AnimatedText is not rendered for audio requests so the deferred path
+    // would never call finalizeComplete.
+    if (!currentStreaming || isAudioRequestRef.current) {
+      console.log("[handleComplete] immediate swap", {
+        reason: isAudioRequestRef.current
+          ? "audio request"
+          : "no streaming text",
+      });
       setMessages((prev) => [...prev, assistantMessage]);
       setIsLoading(false);
+      setIsAudioRequest(false);
+      isAudioRequestRef.current = false;
       setStatusMessage(null);
       setStreamingText("");
       return;
@@ -207,6 +232,8 @@ export function useChatRuntime() {
     console.error("[handleError]", errorMessage);
     pendingCompleteRef.current = null;
     setIsCompleting(false);
+    setIsAudioRequest(false);
+    isAudioRequestRef.current = false;
     setMessages((prev) => [
       ...prev,
       createMessage(`error-${Date.now()}`, "assistant", errorMessage),
@@ -235,12 +262,16 @@ export function useChatRuntime() {
 
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
+      setIsAudioRequest(!!audioBase64);
+      isAudioRequestRef.current = !!audioBase64;
       setStatusMessage(null);
       setStreamingText("");
 
       const POLL_INTERVAL_ACTIVE_MS = 600;
       const POLL_INTERVAL_IDLE_MS = 1500;
-      const POLL_MAX_TIME_MS = 120_000;
+      const POLL_HARD_MAX_MS = 300_000; // 5 min absolute ceiling
+      const POLL_INACTIVITY_DEFAULT_MS = 120_000; // 2 min without any event = dead
+      const POLL_INACTIVITY_AUDIO_GEN_MS = 300_000; // 5 min during TTS (matches hard max)
 
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
@@ -283,11 +314,16 @@ export function useChatRuntime() {
         let cursor = 0;
         let pollInterval = POLL_INTERVAL_ACTIVE_MS;
         const startTime = Date.now();
+        let lastActivityTime = startTime;
+        let inactivityLimit = POLL_INACTIVITY_DEFAULT_MS;
         let handledTerminal = false;
 
         setStatusMessage("Message queued...");
 
-        while (Date.now() - startTime < POLL_MAX_TIME_MS) {
+        while (
+          Date.now() - startTime < POLL_HARD_MAX_MS &&
+          Date.now() - lastActivityTime < inactivityLimit
+        ) {
           const pollResponse = await fetch(
             `/api/chat/stream/poll?message_id=${encodeURIComponent(message_id)}&cursor=${cursor}`,
             { signal: abortController.signal }
@@ -304,6 +340,10 @@ export function useChatRuntime() {
             cursor: number;
           } = await pollResponse.json();
 
+          if (pollData.events.length > 0) {
+            lastActivityTime = Date.now();
+          }
+
           for (const event of pollData.events) {
             if (event.event === "done") continue;
             try {
@@ -312,6 +352,15 @@ export function useChatRuntime() {
               if (parsed.type === "status") {
                 console.log("[poll] status:", parsed.message);
                 setStatusMessage(parsed.message);
+                // TTS can take minutes for long responses — extend inactivity window
+                const statusLower = parsed.message.toLowerCase();
+                if (
+                  statusLower.includes("audio") ||
+                  statusLower.includes("tts") ||
+                  statusLower.includes("speech")
+                ) {
+                  inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
+                }
               } else if (parsed.type === "progress") {
                 // Guard: ignore progress chunks that arrive after a complete/error
                 // event. Without this, straggling chunks append to streamingText
@@ -372,11 +421,20 @@ export function useChatRuntime() {
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
         }
 
-        // Timeout
-        handleError("Request timed out after 2 minutes.");
+        // Timeout — either hard max (5 min) or inactivity
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        const inactive = Math.round((Date.now() - lastActivityTime) / 1000);
+        const reason =
+          Date.now() - lastActivityTime >= inactivityLimit
+            ? `No response activity for ${inactive}s`
+            : `Request exceeded ${Math.round(POLL_HARD_MAX_MS / 1000)}s limit`;
+
+        handleError(`${reason} (elapsed ${elapsed}s).`);
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           setIsLoading(false);
+          setIsAudioRequest(false);
+          isAudioRequestRef.current = false;
           setStatusMessage(null);
           return;
         }
@@ -389,20 +447,21 @@ export function useChatRuntime() {
     [handleComplete, handleError]
   );
 
-  // Combine messages with streaming message if present
+  // Combine messages with streaming message if present.
+  // For audio requests, suppress the visible streaming text — the user
+  // will only see the audio player (with optional transcript toggle).
   const allMessages = useMemo(() => {
-    if (streamingText) {
+    if (streamingText && !isAudioRequest) {
       const streamingMessage = createMessage(
         "streaming",
         "assistant",
         streamingText,
-        undefined,
-        true
+        { isStreaming: true }
       );
       return [...messages, streamingMessage];
     }
     return messages;
-  }, [messages, streamingText]);
+  }, [messages, streamingText, isAudioRequest]);
 
   // Create assistant-ui runtime
   const runtime = useExternalStoreRuntime({
@@ -420,6 +479,7 @@ export function useChatRuntime() {
     runtime,
     messages: allMessages,
     isLoading,
+    isAudioRequest,
     statusMessage,
     streamingText,
     sendMessage,

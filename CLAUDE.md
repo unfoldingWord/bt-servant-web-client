@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Cross-Repo Rules
+
+- **NEVER modify files in other repositories** (e.g., `../bt-servant-worker`)
+  without explicit permission from the user. Reading/researching other repos is
+  fine — writing requires approval.
+
 ## Sensitive Areas
 
 Before modifying code in these areas, read the linked documentation first:
