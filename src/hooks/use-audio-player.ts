@@ -44,19 +44,43 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     audio.preload = "auto";
     audio.src = src;
 
-    // MP3s from TTS may lack duration metadata (no Xing/Info frame).
-    // The browser reports Infinity until it finishes decoding the file.
-    // We update duration from every event that might resolve it.
     const tryUpdateDuration = () => {
       if (isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
     };
 
-    audio.ondurationchange = tryUpdateDuration;
-    audio.onloadedmetadata = tryUpdateDuration;
-    audio.onloadeddata = tryUpdateDuration;
-    audio.oncanplaythrough = tryUpdateDuration;
+    console.log("[audio] setupAudio called", { src: src.substring(0, 80) });
+    audio.onloadstart = () =>
+      console.log("[audio] loadstart", {
+        duration: audio.duration,
+        readyState: audio.readyState,
+      });
+    audio.ondurationchange = () => {
+      console.log("[audio] durationchange", {
+        duration: audio.duration,
+        isFinite: isFinite(audio.duration),
+      });
+      tryUpdateDuration();
+    };
+    audio.onloadedmetadata = () => {
+      console.log("[audio] loadedmetadata", {
+        duration: audio.duration,
+        seekable:
+          audio.seekable.length > 0
+            ? `${audio.seekable.start(0)}-${audio.seekable.end(0)}`
+            : "empty",
+      });
+      tryUpdateDuration();
+    };
+    audio.onloadeddata = () => {
+      console.log("[audio] loadeddata", { duration: audio.duration });
+      tryUpdateDuration();
+    };
+    audio.oncanplaythrough = () => {
+      console.log("[audio] canplaythrough", { duration: audio.duration });
+      tryUpdateDuration();
+    };
 
     audio.ontimeupdate = () => {
       tryUpdateDuration();
