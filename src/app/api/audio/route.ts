@@ -65,7 +65,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Stream the audio response back with upstream headers
+    // Buffer the full response so we can send it with a real Content-Length.
+    // Passing a ReadableStream causes chunked transfer encoding, which prevents
+    // the browser from determining audio duration until playback completes.
+    const audioBuffer = await audioResponse.arrayBuffer();
+
     const contentType =
       audioResponse.headers.get("Content-Type") || "audio/mpeg";
     const cacheControl =
@@ -73,21 +77,14 @@ export async function GET(req: NextRequest) {
 
     const filename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
 
-    const headers: Record<string, string> = {
-      "Content-Type": contentType,
-      "Cache-Control": cacheControl,
-      "Content-Disposition": `inline; filename="${filename}"`,
-    };
-
-    // Forward Content-Length so the browser can determine audio duration
-    const contentLength = audioResponse.headers.get("Content-Length");
-    if (contentLength) {
-      headers["Content-Length"] = contentLength;
-    }
-
-    return new Response(audioResponse.body, {
+    return new Response(audioBuffer, {
       status: 200,
-      headers,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": cacheControl,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Length": String(audioBuffer.byteLength),
+      },
     });
   } catch {
     return new Response(JSON.stringify({ error: "Failed to fetch audio" }), {

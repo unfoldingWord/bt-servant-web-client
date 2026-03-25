@@ -44,15 +44,20 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     audio.preload = "auto";
     audio.src = src;
 
-    // Use durationchange instead of loadedmetadata — for streamed audio,
-    // duration may not be available until after metadata loads
-    audio.ondurationchange = () => {
-      if (isFinite(audio.duration)) {
+    // TTS-generated MP3s often lack duration in metadata. The browser resolves
+    // duration progressively as it downloads/decodes. We check on every event
+    // that might update it: durationchange, timeupdate, and loadeddata.
+    const updateDuration = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
     };
 
+    audio.ondurationchange = updateDuration;
+    audio.onloadeddata = updateDuration;
+
     audio.ontimeupdate = () => {
+      updateDuration();
       setCurrentTime(audio.currentTime);
     };
 
