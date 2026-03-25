@@ -8,6 +8,7 @@ interface UseAudioPlayerReturn {
   duration: number;
   play: (base64Audio: string, format?: string) => void;
   playUrl: (url: string) => void;
+  load: (src: string) => void;
   pause: () => void;
   stop: () => void;
   seek: (time: number) => void;
@@ -31,16 +32,8 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     };
   }, []);
 
-  const startAudio = useCallback((src: string) => {
-    // Resume if same source is paused
-    if (audioRef.current && currentSrcRef.current === src) {
-      audioRef.current.play().catch((error) => {
-        console.error("Failed to play audio:", error);
-      });
-      return;
-    }
-
-    // Stop any existing playback
+  // Create and wire up an Audio element for a given source without playing
+  const setupAudio = useCallback((src: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -48,6 +41,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     const audio = new Audio();
     audioRef.current = audio;
     currentSrcRef.current = src;
+    audio.preload = "auto";
     audio.src = src;
 
     audio.onloadedmetadata = () => {
@@ -70,10 +64,35 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       setIsPlaying(false);
     };
 
-    audio.play().catch((error) => {
-      console.error("Failed to play audio:", error);
-    });
+    return audio;
   }, []);
+
+  // Pre-load a source without playing — call on mount so audio is ready for first click
+  const load = useCallback(
+    (src: string) => {
+      if (audioRef.current && currentSrcRef.current === src) return;
+      setupAudio(src);
+    },
+    [setupAudio]
+  );
+
+  // Play a source — resumes if already loaded, otherwise creates and plays
+  const startAudio = useCallback(
+    (src: string) => {
+      if (audioRef.current && currentSrcRef.current === src) {
+        audioRef.current.play().catch((error) => {
+          console.error("Failed to play audio:", error);
+        });
+        return;
+      }
+
+      const audio = setupAudio(src);
+      audio.play().catch((error) => {
+        console.error("Failed to play audio:", error);
+      });
+    },
+    [setupAudio]
+  );
 
   const play = useCallback(
     (base64Audio: string, format: string = "mp3") => {
@@ -122,6 +141,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     duration,
     play,
     playUrl,
+    load,
     pause,
     stop,
     seek,

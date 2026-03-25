@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface AudioPlayerProps {
@@ -21,30 +21,53 @@ export function AudioPlayer({
   autoPlay = false,
   className,
 }: AudioPlayerProps) {
-  const { isPlaying, currentTime, duration, play, playUrl, pause, seek } =
+  const { isPlaying, currentTime, duration, play, playUrl, load, pause, seek } =
     useAudioPlayer();
   const progressRef = useRef<HTMLDivElement>(null);
 
-  const startPlayback = () => {
-    if (audioUrl) {
-      playUrl(audioUrl);
-    } else if (audioBase64) {
-      play(audioBase64, format);
+  // Compute the resolved audio source once
+  const audioSrc = useMemo(() => {
+    if (audioUrl) return audioUrl;
+    if (audioBase64) {
+      const mimeType =
+        format === "mp3"
+          ? "audio/mpeg"
+          : format === "ogg"
+            ? "audio/ogg"
+            : format === "webm"
+              ? "audio/webm"
+              : "audio/mpeg";
+      return `data:${mimeType};base64,${audioBase64}`;
     }
-  };
+    return null;
+  }, [audioUrl, audioBase64, format]);
 
+  // Pre-load audio on mount so the element is ready for the first click
   useEffect(() => {
-    if (autoPlay) {
-      startPlayback();
+    if (audioSrc) {
+      load(audioSrc);
+    }
+  }, [audioSrc, load]);
+
+  // Auto-play if requested
+  useEffect(() => {
+    if (autoPlay && audioSrc) {
+      if (audioUrl) {
+        playUrl(audioUrl);
+      } else if (audioBase64) {
+        play(audioBase64, format);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioBase64, audioUrl, format, autoPlay]);
+  }, [autoPlay]);
 
   const handleToggle = () => {
     if (isPlaying) {
       pause();
-    } else {
-      startPlayback();
+    } else if (audioUrl) {
+      playUrl(audioUrl);
+    } else if (audioBase64) {
+      play(audioBase64, format);
     }
   };
 
