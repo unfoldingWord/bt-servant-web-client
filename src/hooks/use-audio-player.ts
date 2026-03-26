@@ -50,37 +50,10 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       }
     };
 
-    console.log("[audio] setupAudio called", { src: src.substring(0, 80) });
-    audio.onloadstart = () =>
-      console.log("[audio] loadstart", {
-        duration: audio.duration,
-        readyState: audio.readyState,
-      });
-    audio.ondurationchange = () => {
-      console.log("[audio] durationchange", {
-        duration: audio.duration,
-        isFinite: isFinite(audio.duration),
-      });
-      tryUpdateDuration();
-    };
-    audio.onloadedmetadata = () => {
-      console.log("[audio] loadedmetadata", {
-        duration: audio.duration,
-        seekable:
-          audio.seekable.length > 0
-            ? `${audio.seekable.start(0)}-${audio.seekable.end(0)}`
-            : "empty",
-      });
-      tryUpdateDuration();
-    };
-    audio.onloadeddata = () => {
-      console.log("[audio] loadeddata", { duration: audio.duration });
-      tryUpdateDuration();
-    };
-    audio.oncanplaythrough = () => {
-      console.log("[audio] canplaythrough", { duration: audio.duration });
-      tryUpdateDuration();
-    };
+    audio.ondurationchange = tryUpdateDuration;
+    audio.onloadedmetadata = tryUpdateDuration;
+    audio.onloadeddata = tryUpdateDuration;
+    audio.oncanplaythrough = tryUpdateDuration;
 
     audio.ontimeupdate = () => {
       tryUpdateDuration();

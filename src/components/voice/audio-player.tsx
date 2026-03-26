@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface AudioPlayerProps {
@@ -24,10 +24,10 @@ export function AudioPlayer({
   const { isPlaying, currentTime, duration, play, playUrl, load, pause, seek } =
     useAudioPlayer();
   const progressRef = useRef<HTMLDivElement>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
-  // Compute the resolved audio source once
-  const audioSrc = useMemo(() => {
-    if (audioUrl) return audioUrl;
+  // For base64 sources, compute the data URI directly
+  const dataUri = useMemo(() => {
     if (audioBase64) {
       const mimeType =
         format === "mp3"
@@ -40,9 +40,42 @@ export function AudioPlayer({
       return `data:${mimeType};base64,${audioBase64}`;
     }
     return null;
-  }, [audioUrl, audioBase64, format]);
+  }, [audioBase64, format]);
 
-  // Pre-load audio on mount so the element is ready for the first click
+  // For URL sources, fetch as blob so the browser has the complete data
+  // and can determine duration from the audio container metadata
+  useEffect(() => {
+    if (!audioUrl) return;
+
+    let revoked = false;
+
+    fetch(audioUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (revoked) return;
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch audio blob:", err);
+      });
+
+    return () => {
+      revoked = true;
+      setBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [audioUrl]);
+
+  // The resolved source: blob URL (for proxy URLs), data URI (for base64), or null
+  const audioSrc = blobUrl || dataUri;
+
+  // Pre-load audio element once source is ready
   useEffect(() => {
     if (audioSrc) {
       load(audioSrc);
@@ -52,22 +85,16 @@ export function AudioPlayer({
   // Auto-play if requested
   useEffect(() => {
     if (autoPlay && audioSrc) {
-      if (audioUrl) {
-        playUrl(audioUrl);
-      } else if (audioBase64) {
-        play(audioBase64, format);
-      }
+      playUrl(audioSrc);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPlay]);
+  }, [autoPlay, audioSrc]);
 
   const handleToggle = () => {
     if (isPlaying) {
       pause();
-    } else if (audioUrl) {
-      playUrl(audioUrl);
-    } else if (audioBase64) {
-      play(audioBase64, format);
+    } else if (audioSrc) {
+      playUrl(audioSrc);
     }
   };
 
