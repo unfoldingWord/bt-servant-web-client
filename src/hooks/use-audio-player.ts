@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { audioMimeType } from "@/lib/audio";
 
 interface UseAudioPlayerReturn {
   isPlaying: boolean;
@@ -109,15 +110,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
 
   const play = useCallback(
     (base64Audio: string, format: string = "mp3") => {
-      const mimeType =
-        format === "mp3"
-          ? "audio/mpeg"
-          : format === "ogg"
-            ? "audio/ogg"
-            : format === "webm"
-              ? "audio/webm"
-              : "audio/mpeg";
-      startAudio(`data:${mimeType};base64,${base64Audio}`);
+      startAudio(`data:${audioMimeType(format)};base64,${base64Audio}`);
     },
     [startAudio]
   );

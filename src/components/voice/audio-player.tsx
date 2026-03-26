@@ -5,6 +5,7 @@ import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { audioMimeType } from "@/lib/audio";
 
 interface AudioPlayerProps {
   audioBase64?: string;
@@ -29,15 +30,7 @@ export function AudioPlayer({
   // For base64 sources, compute the data URI directly
   const dataUri = useMemo(() => {
     if (audioBase64) {
-      const mimeType =
-        format === "mp3"
-          ? "audio/mpeg"
-          : format === "ogg"
-            ? "audio/ogg"
-            : format === "webm"
-              ? "audio/webm"
-              : "audio/mpeg";
-      return `data:${mimeType};base64,${audioBase64}`;
+      return `data:${audioMimeType(format)};base64,${audioBase64}`;
     }
     return null;
   }, [audioBase64, format]);

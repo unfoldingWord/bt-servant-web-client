@@ -149,17 +149,6 @@ export function useChatRuntime() {
       return;
     }
 
-    const hasAudio =
-      !!pending.message.audioBase64 || !!pending.message.audioUrl;
-    const textLen =
-      pending.message.content[0]?.type === "text"
-        ? pending.message.content[0].text.length
-        : 0;
-    console.log("[finalizeComplete] swapping in message", {
-      hasAudio,
-      textLen,
-    });
-
     pendingCompleteRef.current = null;
     // React 18+ auto-batches these into a single render
     setIsCompleting(false);
@@ -175,16 +164,6 @@ export function useChatRuntime() {
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
     const hasAudio = !!data.voice_audio_base64 || !!data.voice_audio_url;
-
-    console.log("[handleComplete]", {
-      hasAudio,
-      responseCount: data.responses.length,
-      responseLengths: data.responses.map((r) => r.length),
-      joinedLen: joinedResponse.length,
-      streamingLen: currentStreaming.length,
-      audioLen: data.voice_audio_base64?.length ?? 0,
-      audioUrl: data.voice_audio_url ?? null,
-    });
 
     const audioUrl = data.voice_audio_url
       ? `/api/audio?url=${encodeURIComponent(data.voice_audio_url)}`
@@ -204,11 +183,6 @@ export function useChatRuntime() {
     // AnimatedText is not rendered for audio requests so the deferred path
     // would never call finalizeComplete.
     if (!currentStreaming || isAudioRequestRef.current) {
-      console.log("[handleComplete] immediate swap", {
-        reason: isAudioRequestRef.current
-          ? "audio request"
-          : "no streaming text",
-      });
       setMessages((prev) => [...prev, assistantMessage]);
       setIsLoading(false);
       setIsAudioRequest(false);
@@ -221,7 +195,6 @@ export function useChatRuntime() {
     // Defer swap: update streaming text to the full response so AnimatedText
     // can animate the remaining characters, then finalizeComplete swaps in
     // the permanent message once the animation catches up.
-    console.log("[handleComplete] deferred swap (streaming text present)");
     pendingCompleteRef.current = { message: assistantMessage };
     setStreamingText(joinedResponse);
     setIsCompleting(true);
@@ -303,13 +276,6 @@ export function useChatRuntime() {
         if (!message_id) {
           throw new Error("No message_id returned");
         }
-        console.log("[sendMessage] enqueued", {
-          message_id,
-          isAudio: !!audioBase64,
-          audioFormat,
-          textLen: text.length,
-        });
-
         // Step 2: Poll for events from the browser
         let cursor = 0;
         let pollInterval = POLL_INTERVAL_ACTIVE_MS;
@@ -350,7 +316,6 @@ export function useChatRuntime() {
               const parsed: SSEEvent = JSON.parse(event.data);
 
               if (parsed.type === "status") {
-                console.log("[poll] status:", parsed.message);
                 setStatusMessage(parsed.message);
                 // TTS can take minutes for long responses — extend inactivity
                 // window for all audio requests, plus keyword fallback for
@@ -374,11 +339,6 @@ export function useChatRuntime() {
                 // response, causing a text divergence that triggers the animation
                 // guard in useAnimatedText. See: docs/streaming-animation.md
                 if (!handledTerminal) {
-                  console.log(
-                    "[poll] progress chunk:",
-                    parsed.text.length,
-                    "chars"
-                  );
                   setStreamingText((prev) => prev + parsed.text);
                 } else {
                   console.warn(
@@ -386,10 +346,6 @@ export function useChatRuntime() {
                   );
                 }
               } else if (parsed.type === "complete") {
-                console.log("[poll] complete event received", {
-                  hasAudio: !!parsed.response.voice_audio_base64,
-                  responses: parsed.response.responses.length,
-                });
                 handleComplete(parsed.response);
                 handledTerminal = true;
               } else if (parsed.type === "error") {
@@ -407,7 +363,6 @@ export function useChatRuntime() {
           cursor = pollData.cursor;
 
           if (pollData.done) {
-            console.log("[poll] done", { handledTerminal, cursor });
             if (!handledTerminal) {
               console.warn(
                 "[poll] done but no terminal event was handled — resetting state"
