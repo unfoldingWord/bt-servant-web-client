@@ -352,14 +352,20 @@ export function useChatRuntime() {
               if (parsed.type === "status") {
                 console.log("[poll] status:", parsed.message);
                 setStatusMessage(parsed.message);
-                // TTS can take minutes for long responses — extend inactivity window
-                const statusLower = parsed.message.toLowerCase();
-                if (
-                  statusLower.includes("audio") ||
-                  statusLower.includes("tts") ||
-                  statusLower.includes("speech")
-                ) {
+                // TTS can take minutes for long responses — extend inactivity
+                // window for all audio requests, plus keyword fallback for
+                // text requests that unexpectedly generate audio
+                if (isAudioRequestRef.current) {
                   inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
+                } else {
+                  const statusLower = parsed.message.toLowerCase();
+                  if (
+                    statusLower.includes("audio") ||
+                    statusLower.includes("tts") ||
+                    statusLower.includes("speech")
+                  ) {
+                    inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
+                  }
                 }
               } else if (parsed.type === "progress") {
                 // Guard: ignore progress chunks that arrive after a complete/error
@@ -404,9 +410,11 @@ export function useChatRuntime() {
             console.log("[poll] done", { handledTerminal, cursor });
             if (!handledTerminal) {
               console.warn(
-                "[poll] done but no terminal event was handled — resetting isLoading"
+                "[poll] done but no terminal event was handled — resetting state"
               );
               setIsLoading(false);
+              setIsAudioRequest(false);
+              isAudioRequestRef.current = false;
               setStatusMessage(null);
             }
             return;

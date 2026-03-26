@@ -38,6 +38,10 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       audioRef.current.pause();
     }
 
+    // Reset state from previous source
+    setDuration(0);
+    setCurrentTime(0);
+
     const audio = new Audio();
     audioRef.current = audio;
     currentSrcRef.current = src;

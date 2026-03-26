@@ -49,7 +49,7 @@ export function AudioPlayer({
 
     let revoked = false;
 
-    fetch(audioUrl)
+    fetch(audioUrl, { credentials: "include" })
       .then((res) => {
         if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
         return res.blob();

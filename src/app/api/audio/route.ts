@@ -75,7 +75,8 @@ export async function GET(req: NextRequest) {
     const cacheControl =
       audioResponse.headers.get("Cache-Control") || "public, max-age=86400";
 
-    const filename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
+    const rawFilename = parsedUrl.pathname.split("/").pop() || "audio.mp3";
+    const filename = rawFilename.replace(/[^\w.\-]/g, "_");
 
     return new Response(audioBuffer, {
       status: 200,
