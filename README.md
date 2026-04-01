@@ -154,17 +154,16 @@ Streams chat responses via Server-Sent Events (SSE).
 
 **SSE Events:**
 
-- `progress`: Real-time status updates during processing
+- `status`: Human-readable status updates (e.g. "Thinking...", "Generating audio...")
+- `progress`: Incremental text chunks for real-time streaming
 - `complete`: Final response with text and optional audio
 - `error`: Error message if something went wrong
+- `keepalive`: Connection keep-alive (no visible effect)
+- `tool_use` / `tool_result`: Tool invocation events (logged, not displayed)
 
 ### GET/PUT /api/preferences
 
 Manage user preferences (response language, agentic strength, etc.)
-
-### POST /api/progress-callback
-
-Webhook endpoint for bt-servant-engine to push progress updates.
 
 ## Voice Features
 
@@ -195,7 +194,7 @@ The project uses Husky and lint-staged for pre-commit checks:
 The app is deployed to **Cloudflare Workers** via OpenNext.
 
 - **Production**: https://bt-servant-web-client.unfoldingword.workers.dev
-- **CI/CD**: GitHub Actions automatically deploys on push to `main`
+- **CI/CD**: GitHub Actions deploys to staging after CI passes on `main`; production is manual (`workflow_dispatch`)
 
 Secrets are managed via GitHub Secrets and injected at deploy time.
 
