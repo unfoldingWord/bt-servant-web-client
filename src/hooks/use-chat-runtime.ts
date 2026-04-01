@@ -163,8 +163,6 @@ export function useChatRuntime() {
   const handleComplete = useCallback((data: ChatResponse) => {
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
-    const hasAudio = !!data.voice_audio_base64 || !!data.voice_audio_url;
-
     const audioUrl = data.voice_audio_url
       ? `/api/audio?url=${encodeURIComponent(data.voice_audio_url)}`
       : undefined;
