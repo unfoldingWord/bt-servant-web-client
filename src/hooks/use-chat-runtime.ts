@@ -365,7 +365,7 @@ export function useChatRuntime() {
                 parsed.type === "tool_use" ||
                 parsed.type === "tool_result"
               ) {
-                console.log("[sse] tool event:", parsed.type, parsed);
+                console.debug("[sse] tool event:", parsed.type, parsed);
               }
             } catch (e) {
               console.error("[sse] failed to parse event:", jsonStr, e);
@@ -380,10 +380,13 @@ export function useChatRuntime() {
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
+          pendingCompleteRef.current = null;
+          setIsCompleting(false);
           setIsLoading(false);
           setIsAudioRequest(false);
           isAudioRequestRef.current = false;
           setStatusMessage(null);
+          setStreamingText("");
           return;
         }
         console.error("[sendMessage] error", error);

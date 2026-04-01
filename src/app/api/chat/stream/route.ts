@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     return new Response(upstreamResponse.body, {
       headers: {
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-store",
         Connection: "keep-alive",
       },
     });
