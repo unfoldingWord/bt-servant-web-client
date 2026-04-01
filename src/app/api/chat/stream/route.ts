@@ -43,62 +43,53 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Enqueue message
+  // Proxy SSE stream from upstream
   try {
-    const enqueueResponse = await fetch(
-      `${ENGINE_BASE_URL}/api/v1/chat/queue`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${ENGINE_API_KEY}`,
-        },
-        body: JSON.stringify({
-          user_id: session.user.id,
-          org: DEFAULT_ORG,
-          message: parsed.message,
-          message_type: parsed.message_type,
-          client_id: CLIENT_ID,
-          ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
-          ...(parsed.audio_format && { audio_format: parsed.audio_format }),
-        }),
-      }
-    );
+    const upstreamResponse = await fetch(`${ENGINE_BASE_URL}/api/v1/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ENGINE_API_KEY}`,
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        user_id: session.user.id,
+        org: DEFAULT_ORG,
+        message: parsed.message,
+        message_type: parsed.message_type,
+        client_id: CLIENT_ID,
+        ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
+        ...(parsed.audio_format && { audio_format: parsed.audio_format }),
+      }),
+    });
 
-    if (!enqueueResponse.ok) {
-      const errorText = await enqueueResponse.text();
-      console.error("[enqueue] upstream error", {
-        status: enqueueResponse.status,
+    if (!upstreamResponse.ok || !upstreamResponse.body) {
+      const errorText = await upstreamResponse.text().catch(() => "no body");
+      console.error("[chat/stream] upstream error", {
+        status: upstreamResponse.status,
         body: errorText,
       });
       return new Response(
         JSON.stringify({
-          error: `Enqueue error: ${enqueueResponse.status}`,
+          error: `Upstream error: ${upstreamResponse.status}`,
         }),
         {
-          status: enqueueResponse.status,
+          status: upstreamResponse.status || 502,
           headers: { "Content-Type": "application/json" },
         }
       );
     }
 
-    const result = await enqueueResponse.json();
-    const message_id = result.message_id;
-
-    if (!message_id) {
-      return new Response(
-        JSON.stringify({ error: "Server returned no message_id" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    return new Response(JSON.stringify({ message_id }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+    return new Response(upstreamResponse.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+      },
     });
   } catch {
     return new Response(
-      JSON.stringify({ error: "Failed to enqueue message" }),
+      JSON.stringify({ error: "Failed to connect to upstream" }),
       { status: 502, headers: { "Content-Type": "application/json" } }
     );
   }

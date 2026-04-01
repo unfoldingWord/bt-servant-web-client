@@ -22,7 +22,7 @@ export function AudioPlayer({
   autoPlay = false,
   className,
 }: AudioPlayerProps) {
-  const { isPlaying, currentTime, duration, play, playUrl, load, pause, seek } =
+  const { isPlaying, currentTime, duration, playUrl, load, pause, seek } =
     useAudioPlayer();
   const progressRef = useRef<HTMLDivElement>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);

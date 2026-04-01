@@ -39,21 +39,6 @@ export interface ChatHistoryResponse {
   offset: number;
 }
 
-export interface EnqueueRequest {
-  user_id: string;
-  org: string;
-  message: string;
-  message_type: MessageType;
-  client_id: string;
-  audio_base64?: string;
-  audio_format?: string;
-}
-
-export interface EnqueueResponse {
-  message_id: string;
-  queue_position: number;
-}
-
 // SSE event types for streaming endpoint (matching backend)
 export type SSEEvent =
   | { type: "status"; message: string }
@@ -61,4 +46,5 @@ export type SSEEvent =
   | { type: "complete"; response: ChatResponse }
   | { type: "error"; error: string }
   | { type: "tool_use"; tool: string; input: unknown }
-  | { type: "tool_result"; tool: string; result: unknown };
+  | { type: "tool_result"; tool: string; result: unknown }
+  | { type: "keepalive" };

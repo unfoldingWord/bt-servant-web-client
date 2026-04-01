@@ -8,7 +8,7 @@ streaming or animation code.**
 
 The streaming flow has three phases:
 
-1. **Streaming phase** — The poll loop receives `progress` events and appends
+1. **Streaming phase** — The SSE stream delivers `progress` events and appends
    each chunk to `streamingText` state. The `allMessages` memo appends a
    synthetic streaming message (id=`"streaming"`, `isStreaming: true`) to the
    message list. `AssistantMessage` renders this via `AnimatedText`, which
@@ -28,10 +28,10 @@ The streaming flow has three phases:
 
 ## Key Files
 
-| File                                     | What it does                                                         |
-| ---------------------------------------- | -------------------------------------------------------------------- |
-| `src/hooks/use-chat-runtime.ts`          | Streaming state, poll loop, `handleComplete`, `finalizeComplete`     |
-| `src/components/assistant-ui/thread.tsx` | `useAnimatedText` hook, `AnimatedText` component, `AssistantMessage` |
+| File                                     | What it does                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `src/hooks/use-chat-runtime.ts`          | Streaming state, SSE stream reader, `handleComplete`, `finalizeComplete` |
+| `src/components/assistant-ui/thread.tsx` | `useAnimatedText` hook, `AnimatedText` component, `AssistantMessage`     |
 
 ## Critical Invariants
 
@@ -53,11 +53,11 @@ and the joined final response can cause a prefix mismatch.
 
 ### 2. Progress events must be ignored after a terminal event
 
-In the poll loop, once a `complete` or `error` event has been processed,
-subsequent `progress` events in the same or later poll batches must be
-discarded. Without this guard, straggling chunks append to `streamingText`
-after `handleComplete` has already set it to the final joined response,
-creating the text divergence described above.
+In the SSE stream reader, once a `complete` or `error` event has been
+processed, subsequent `progress` events must be discarded. Without this guard,
+straggling chunks append to `streamingText` after `handleComplete` has already
+set it to the final joined response, creating the text divergence described
+above.
 
 ### 3. Streaming markdown components must match final markdown components
 

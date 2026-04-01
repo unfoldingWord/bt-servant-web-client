@@ -1,66 +1,14 @@
-import type {
-  ChatRequest,
-  ChatResponse,
-  ChatHistoryResponse,
-  MessageType,
-  UserPreferences,
-} from "@/types/engine";
+import type { ChatHistoryResponse, UserPreferences } from "@/types/engine";
 
 const ENGINE_BASE_URL = process.env.ENGINE_BASE_URL!;
 const ENGINE_API_KEY = process.env.ENGINE_API_KEY!;
-const CLIENT_ID = process.env.CLIENT_ID || "web";
 const DEFAULT_ORG = process.env.DEFAULT_ORG || "unfoldingWord";
-const DEFAULT_TIMEOUT = 120000; // 2 minutes for AI processing
 
 function getAuthHeaders(): HeadersInit {
   return {
     Authorization: `Bearer ${ENGINE_API_KEY}`,
     "Content-Type": "application/json",
   };
-}
-
-export async function sendChatMessage(
-  userId: string,
-  message: string,
-  messageType: MessageType = "text",
-  audioBase64?: string,
-  audioFormat?: string,
-  progressCallbackUrl?: string,
-  progressThrottleSeconds?: number
-): Promise<ChatResponse> {
-  const payload: ChatRequest = {
-    client_id: CLIENT_ID,
-    user_id: userId,
-    message,
-    message_type: messageType,
-    ...(audioBase64 && { audio_base64: audioBase64 }),
-    ...(audioFormat && { audio_format: audioFormat }),
-    ...(progressCallbackUrl && { progress_callback_url: progressCallbackUrl }),
-    ...(progressThrottleSeconds && {
-      progress_throttle_seconds: progressThrottleSeconds,
-    }),
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
-
-  try {
-    const response = await fetch(`${ENGINE_BASE_URL}/api/v1/chat`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Engine API error: ${response.status} - ${errorText}`);
-    }
-
-    return response.json();
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 export async function getUserPreferences(
