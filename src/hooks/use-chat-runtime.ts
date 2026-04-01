@@ -82,7 +82,7 @@ export function useChatRuntime() {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
 
-  // Abort polling on unmount
+  // Abort streaming on unmount
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
@@ -240,18 +240,32 @@ export function useChatRuntime() {
       setStatusMessage(null);
       setStreamingText("");
 
-      const POLL_INTERVAL_ACTIVE_MS = 600;
-      const POLL_INTERVAL_IDLE_MS = 1500;
-      const POLL_HARD_MAX_MS = 300_000; // 5 min absolute ceiling
-      const POLL_INACTIVITY_DEFAULT_MS = 120_000; // 2 min without any event = dead
-      const POLL_INACTIVITY_AUDIO_GEN_MS = 300_000; // 5 min during TTS (matches hard max)
+      const HARD_MAX_MS = 300_000; // 5 min absolute ceiling
+      const INACTIVITY_DEFAULT_MS = 120_000; // 2 min without any event = dead
+      const INACTIVITY_AUDIO_GEN_MS = 300_000; // 5 min during TTS (matches hard max)
 
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
+      let hardMaxTimer: ReturnType<typeof setTimeout> | null = null;
+      let inactivityTimer: ReturnType<typeof setInterval> | null = null;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
       try {
-        // Step 1: Enqueue message
-        const enqueueResponse = await fetch("/api/chat/stream", {
+        // Hard max timeout — abort the stream after 5 min no matter what
+        hardMaxTimer = setTimeout(() => abortController.abort(), HARD_MAX_MS);
+
+        // Inactivity tracking — abort if no SSE events for too long
+        let lastEventTime = Date.now();
+        let inactivityLimit = INACTIVITY_DEFAULT_MS;
+        inactivityTimer = setInterval(() => {
+          if (Date.now() - lastEventTime >= inactivityLimit) {
+            abortController.abort();
+          }
+        }, 5_000);
+
+        // SSE fetch — BFF proxies upstream SSE stream
+        const response = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -263,57 +277,52 @@ export function useChatRuntime() {
           signal: abortController.signal,
         });
 
-        if (!enqueueResponse.ok) {
-          const errorBody = await enqueueResponse.text();
-          console.error("[sendMessage] enqueue failed", {
-            status: enqueueResponse.status,
+        if (!response.ok) {
+          const errorBody = await response.text();
+          console.error("[sendMessage] stream request failed", {
+            status: response.status,
             body: errorBody,
           });
-          throw new Error(`Failed to send message (${enqueueResponse.status})`);
+          throw new Error(`Failed to send message (${response.status})`);
         }
 
-        const { message_id } = await enqueueResponse.json();
-        if (!message_id) {
-          throw new Error("No message_id returned");
+        if (!response.body) {
+          throw new Error("No response body");
         }
-        // Step 2: Poll for events from the browser
-        let cursor = 0;
-        let pollInterval = POLL_INTERVAL_ACTIVE_MS;
-        const startTime = Date.now();
-        let lastActivityTime = startTime;
-        let inactivityLimit = POLL_INACTIVITY_DEFAULT_MS;
+
+        // Stream reader with SSE line-buffered parser
+        reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
         let handledTerminal = false;
 
-        setStatusMessage("Message queued...");
+        setStatusMessage("Connecting...");
 
-        while (
-          Date.now() - startTime < POLL_HARD_MAX_MS &&
-          Date.now() - lastActivityTime < inactivityLimit
-        ) {
-          const pollResponse = await fetch(
-            `/api/chat/stream/poll?message_id=${encodeURIComponent(message_id)}&cursor=${cursor}`,
-            { signal: abortController.signal }
-          );
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-          if (!pollResponse.ok) {
-            throw new Error(`Poll error: ${pollResponse.status}`);
-          }
+          buffer += decoder.decode(value, { stream: true });
 
-          const pollData: {
-            message_id: string;
-            events: { event: string; data: string }[];
-            done: boolean;
-            cursor: number;
-          } = await pollResponse.json();
+          // Split on double newlines (SSE event boundary)
+          const events = buffer.split("\n\n");
+          // Last element may be incomplete — keep in buffer
+          buffer = events.pop() || "";
 
-          if (pollData.events.length > 0) {
-            lastActivityTime = Date.now();
-          }
+          for (const eventBlock of events) {
+            if (!eventBlock.trim()) continue;
 
-          for (const event of pollData.events) {
-            if (event.event === "done") continue;
+            // Extract data line from SSE format
+            const dataLine = eventBlock
+              .split("\n")
+              .find((line) => line.startsWith("data: "));
+            if (!dataLine) continue;
+
+            const jsonStr = dataLine.slice(6); // strip "data: "
+
             try {
-              const parsed: SSEEvent = JSON.parse(event.data);
+              const parsed: SSEEvent = JSON.parse(jsonStr);
+              lastEventTime = Date.now();
 
               if (parsed.type === "status") {
                 setStatusMessage(parsed.message);
@@ -321,7 +330,7 @@ export function useChatRuntime() {
                 // window for all audio requests, plus keyword fallback for
                 // text requests that unexpectedly generate audio
                 if (isAudioRequestRef.current) {
-                  inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
+                  inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
                 } else {
                   const statusLower = parsed.message.toLowerCase();
                   if (
@@ -329,7 +338,7 @@ export function useChatRuntime() {
                     statusLower.includes("tts") ||
                     statusLower.includes("speech")
                   ) {
-                    inactivityLimit = POLL_INACTIVITY_AUDIO_GEN_MS;
+                    inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
                   }
                 }
               } else if (parsed.type === "progress") {
@@ -342,57 +351,35 @@ export function useChatRuntime() {
                   setStreamingText((prev) => prev + parsed.text);
                 } else {
                   console.warn(
-                    "[poll] ignoring late progress chunk after terminal event"
+                    "[sse] ignoring late progress chunk after terminal event"
                   );
                 }
               } else if (parsed.type === "complete") {
                 handleComplete(parsed.response);
                 handledTerminal = true;
               } else if (parsed.type === "error") {
-                console.error("[poll] error event:", parsed.error);
+                console.error("[sse] error event:", parsed.error);
                 handleError(parsed.error);
                 handledTerminal = true;
-              } else {
-                console.warn("[poll] unknown event type:", parsed.type);
+              } else if (parsed.type === "keepalive") {
+                // no-op — lastEventTime already updated above
+              } else if (
+                parsed.type === "tool_use" ||
+                parsed.type === "tool_result"
+              ) {
+                console.log("[sse] tool event:", parsed.type, parsed);
               }
             } catch (e) {
-              console.error("[poll] failed to parse event:", event, e);
+              console.error("[sse] failed to parse event:", jsonStr, e);
             }
           }
-
-          cursor = pollData.cursor;
-
-          if (pollData.done) {
-            if (!handledTerminal) {
-              console.warn(
-                "[poll] done but no terminal event was handled — resetting state"
-              );
-              setIsLoading(false);
-              setIsAudioRequest(false);
-              isAudioRequestRef.current = false;
-              setStatusMessage(null);
-            }
-            return;
-          }
-
-          // Adaptive polling: fast when events flowing, ramp up when idle
-          pollInterval =
-            pollData.events.length > 0
-              ? POLL_INTERVAL_ACTIVE_MS
-              : Math.min(pollInterval + 200, POLL_INTERVAL_IDLE_MS);
-
-          await new Promise((resolve) => setTimeout(resolve, pollInterval));
         }
 
-        // Timeout — either hard max (5 min) or inactivity
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        const inactive = Math.round((Date.now() - lastActivityTime) / 1000);
-        const reason =
-          Date.now() - lastActivityTime >= inactivityLimit
-            ? `No response activity for ${inactive}s`
-            : `Request exceeded ${Math.round(POLL_HARD_MAX_MS / 1000)}s limit`;
-
-        handleError(`${reason} (elapsed ${elapsed}s).`);
+        // Stream ended — ensure we got a terminal event
+        if (!handledTerminal) {
+          console.warn("[sse] stream ended without terminal event");
+          handleError("Connection lost. Please try again.");
+        }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           setIsLoading(false);
@@ -404,6 +391,13 @@ export function useChatRuntime() {
         console.error("[sendMessage] error", error);
         handleError("Sorry, I encountered an error. Please try again.");
       } finally {
+        if (hardMaxTimer) clearTimeout(hardMaxTimer);
+        if (inactivityTimer) clearInterval(inactivityTimer);
+        try {
+          reader?.releaseLock();
+        } catch {
+          /* already released */
+        }
         abortControllerRef.current = null;
       }
     },
