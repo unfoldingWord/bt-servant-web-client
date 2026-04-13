@@ -45,23 +45,26 @@ export async function POST(req: NextRequest) {
 
   // Proxy SSE stream from upstream
   try {
-    const upstreamResponse = await fetch(`${ENGINE_BASE_URL}/api/v1/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ENGINE_API_KEY}`,
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({
-        user_id: session.user.id,
-        org: DEFAULT_ORG,
-        message: parsed.message,
-        message_type: parsed.message_type,
-        client_id: CLIENT_ID,
-        ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
-        ...(parsed.audio_format && { audio_format: parsed.audio_format }),
-      }),
-    });
+    const upstreamResponse = await fetch(
+      `${ENGINE_BASE_URL}/api/v1/chat/stream`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ENGINE_API_KEY}`,
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          user_id: session.user.id,
+          org: DEFAULT_ORG,
+          message: parsed.message,
+          message_type: parsed.message_type,
+          client_id: CLIENT_ID,
+          ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
+          ...(parsed.audio_format && { audio_format: parsed.audio_format }),
+        }),
+      }
+    );
 
     if (!upstreamResponse.ok || !upstreamResponse.body) {
       const errorText = await upstreamResponse.text().catch(() => "no body");
