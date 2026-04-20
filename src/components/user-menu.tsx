@@ -11,7 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useChatContext } from "@/components/providers/assistant-provider";
-import { isValidOrg } from "@/lib/validate-org";
+
+const ORG_OPTIONS = ["unfoldingWord", "wordcollective"] as const;
 
 interface UserMenuProps {
   userInitial: string;
@@ -20,25 +21,10 @@ interface UserMenuProps {
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
   const { org, setOrg } = useChatContext();
-  const [orgDraft, setOrgDraft] = useState(org);
 
   useEffect(() => {
     getCsrfToken().then((token) => setCsrfToken(token || ""));
   }, []);
-
-  // Keep draft in sync when org changes externally
-  useEffect(() => {
-    setOrgDraft(org);
-  }, [org]);
-
-  const draftValid = isValidOrg(orgDraft.trim());
-
-  const commitOrg = () => {
-    const trimmed = orgDraft.trim();
-    if (trimmed && trimmed !== org && draftValid) {
-      setOrg(trimmed);
-    }
-  };
 
   return (
     <DropdownMenu>
@@ -59,28 +45,17 @@ export function UserMenu({ userInitial }: UserMenuProps) {
             <BuildingIcon className="h-3.5 w-3.5" />
             Organization
           </label>
-          <input
-            type="text"
-            value={orgDraft}
-            onChange={(e) => setOrgDraft(e.target.value)}
-            onBlur={commitOrg}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                commitOrg();
-                e.currentTarget.blur();
-              }
-            }}
-            className={`mt-1 w-full rounded-md border px-2 py-1.5 text-sm outline-none ${
-              !draftValid
-                ? "border-red-400 text-red-700 dark:border-red-500 dark:text-red-400"
-                : "border-[#00000015] text-[#1a1a18] focus:border-[#ae5630] focus:ring-1 focus:ring-[#ae5630] dark:border-[#6c6a6040] dark:text-[#eee]"
-            } bg-[#f5f5f0] dark:bg-[#393937]`}
-          />
-          {!draftValid && (
-            <p className="mt-1 text-xs text-red-500">
-              Letters, numbers, hyphens, and underscores only
-            </p>
-          )}
+          <select
+            value={org}
+            onChange={(e) => setOrg(e.target.value)}
+            className="mt-1 w-full rounded-md border border-[#00000015] bg-[#f5f5f0] px-2 py-1.5 text-sm text-[#1a1a18] outline-none focus:border-[#ae5630] focus:ring-1 focus:ring-[#ae5630] dark:border-[#6c6a6040] dark:bg-[#393937] dark:text-[#eee]"
+          >
+            {ORG_OPTIONS.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
         </div>
         <DropdownMenuSeparator className="bg-[#00000010] dark:bg-[#6c6a6030]" />
         <form action="/api/auth/signout" method="POST">
