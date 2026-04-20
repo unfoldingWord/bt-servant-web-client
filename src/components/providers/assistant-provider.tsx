@@ -30,8 +30,14 @@ export function useChatContext() {
   return ctx;
 }
 
-export function AssistantProvider({ children }: { children: ReactNode }) {
-  const { org, setOrg } = useOrg();
+export function AssistantProvider({
+  children,
+  defaultOrg,
+}: {
+  children: ReactNode;
+  defaultOrg: string;
+}) {
+  const { org, setOrg } = useOrg(defaultOrg);
   const {
     runtime,
     sendMessage,

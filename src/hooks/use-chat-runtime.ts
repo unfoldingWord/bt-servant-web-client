@@ -73,7 +73,6 @@ export function useChatRuntime(org: string) {
   const [streamingText, setStreamingText] = useState<string>("");
   const [isAudioRequest, setIsAudioRequest] = useState(false);
   const isAudioRequestRef = useRef(false);
-  const historyLoadedRef = useRef(false);
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
@@ -90,51 +89,60 @@ export function useChatRuntime(org: string) {
   }, []);
 
   // Load chat history and convert to ChatMessage format
-  const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
-    try {
-      const response = await fetch(
-        `/api/chat/history?org=${encodeURIComponent(org)}`
-      );
-      if (!response.ok) {
+  const loadHistory = useCallback(
+    async (signal?: AbortSignal): Promise<ChatMessage[]> => {
+      try {
+        const response = await fetch(
+          `/api/chat/history?org=${encodeURIComponent(org)}`,
+          { signal }
+        );
+        if (!response.ok) {
+          return [];
+        }
+
+        const history: ChatHistoryResponse = await response.json();
+
+        // Convert history entries to ChatMessage format
+        const historyMessages: ChatMessage[] = [];
+
+        history.entries.forEach((entry, i) => {
+          // Add user message
+          historyMessages.push({
+            id: `history-user-${i}`,
+            role: "user",
+            content: [{ type: "text" as const, text: entry.user_message }],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+          });
+
+          // Add assistant message
+          historyMessages.push({
+            id: `history-assistant-${i}`,
+            role: "assistant",
+            content: [
+              { type: "text" as const, text: entry.assistant_response },
+            ],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+            audioUrl: entry.voice_audio_url
+              ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
+              : undefined,
+          });
+        });
+
+        return historyMessages;
+      } catch {
         return [];
       }
-
-      const history: ChatHistoryResponse = await response.json();
-
-      // Convert history entries to ChatMessage format
-      const historyMessages: ChatMessage[] = [];
-
-      history.entries.forEach((entry, i) => {
-        // Add user message
-        historyMessages.push({
-          id: `history-user-${i}`,
-          role: "user",
-          content: [{ type: "text" as const, text: entry.user_message }],
-          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
-        });
-
-        // Add assistant message
-        historyMessages.push({
-          id: `history-assistant-${i}`,
-          role: "assistant",
-          content: [{ type: "text" as const, text: entry.assistant_response }],
-          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
-          audioUrl: entry.voice_audio_url
-            ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
-            : undefined,
-        });
-      });
-
-      return historyMessages;
-    } catch {
-      return [];
-    }
-  }, [org]);
+    },
+    [org]
+  );
 
   // Load history on mount and when org changes
   useEffect(() => {
     // On org change, reset state and reload
-    historyLoadedRef.current = true;
     abortControllerRef.current?.abort();
     setMessages([]);
     setStreamingText("");
@@ -142,11 +150,17 @@ export function useChatRuntime(org: string) {
     setStatusMessage(null);
     pendingCompleteRef.current = null;
 
-    loadHistory().then((historyMessages) => {
+    const historyAbort = new AbortController();
+
+    loadHistory(historyAbort.signal).then((historyMessages) => {
       if (historyMessages.length > 0) {
         setMessages(historyMessages);
       }
     });
+
+    return () => {
+      historyAbort.abort();
+    };
   }, [loadHistory]);
 
   // Finalize a pending completion — called by AnimatedText when animation catches up
