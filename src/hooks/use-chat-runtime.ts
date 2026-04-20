@@ -66,14 +66,13 @@ function createMessage(
   };
 }
 
-export function useChatRuntime() {
+export function useChatRuntime(org: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
   const [isAudioRequest, setIsAudioRequest] = useState(false);
   const isAudioRequestRef = useRef(false);
-  const historyLoadedRef = useRef(false);
   const pendingCompleteRef = useRef<{ message: ChatMessage } | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
@@ -90,55 +89,78 @@ export function useChatRuntime() {
   }, []);
 
   // Load chat history and convert to ChatMessage format
-  const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
-    try {
-      const response = await fetch("/api/chat/history");
-      if (!response.ok) {
+  const loadHistory = useCallback(
+    async (signal?: AbortSignal): Promise<ChatMessage[]> => {
+      try {
+        const response = await fetch(
+          `/api/chat/history?org=${encodeURIComponent(org)}`,
+          { signal }
+        );
+        if (!response.ok) {
+          return [];
+        }
+
+        const history: ChatHistoryResponse = await response.json();
+
+        // Convert history entries to ChatMessage format
+        const historyMessages: ChatMessage[] = [];
+
+        history.entries.forEach((entry, i) => {
+          // Add user message
+          historyMessages.push({
+            id: `history-user-${i}`,
+            role: "user",
+            content: [{ type: "text" as const, text: entry.user_message }],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+          });
+
+          // Add assistant message
+          historyMessages.push({
+            id: `history-assistant-${i}`,
+            role: "assistant",
+            content: [
+              { type: "text" as const, text: entry.assistant_response },
+            ],
+            createdAt: entry.created_at
+              ? new Date(entry.created_at)
+              : new Date(),
+            audioUrl: entry.voice_audio_url
+              ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
+              : undefined,
+          });
+        });
+
+        return historyMessages;
+      } catch {
         return [];
       }
+    },
+    [org]
+  );
 
-      const history: ChatHistoryResponse = await response.json();
-
-      // Convert history entries to ChatMessage format
-      const historyMessages: ChatMessage[] = [];
-
-      history.entries.forEach((entry, i) => {
-        // Add user message
-        historyMessages.push({
-          id: `history-user-${i}`,
-          role: "user",
-          content: [{ type: "text" as const, text: entry.user_message }],
-          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
-        });
-
-        // Add assistant message
-        historyMessages.push({
-          id: `history-assistant-${i}`,
-          role: "assistant",
-          content: [{ type: "text" as const, text: entry.assistant_response }],
-          createdAt: entry.created_at ? new Date(entry.created_at) : new Date(),
-          audioUrl: entry.voice_audio_url
-            ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
-            : undefined,
-        });
-      });
-
-      return historyMessages;
-    } catch {
-      return [];
-    }
-  }, []);
-
-  // Load history on mount
+  // Load history on mount and when org changes
   useEffect(() => {
-    if (!historyLoadedRef.current) {
-      historyLoadedRef.current = true;
-      loadHistory().then((historyMessages) => {
-        if (historyMessages.length > 0) {
-          setMessages(historyMessages);
-        }
-      });
-    }
+    // On org change, reset state and reload
+    abortControllerRef.current?.abort();
+    setMessages([]);
+    setStreamingText("");
+    setIsLoading(false);
+    setStatusMessage(null);
+    pendingCompleteRef.current = null;
+
+    const historyAbort = new AbortController();
+
+    loadHistory(historyAbort.signal).then((historyMessages) => {
+      if (historyMessages.length > 0) {
+        setMessages(historyMessages);
+      }
+    });
+
+    return () => {
+      historyAbort.abort();
+    };
   }, [loadHistory]);
 
   // Finalize a pending completion — called by AnimatedText when animation catches up
@@ -271,6 +293,7 @@ export function useChatRuntime() {
             message_type: audioBase64 ? "audio" : "text",
             audio_base64: audioBase64,
             audio_format: audioFormat,
+            org,
           }),
           signal: abortController.signal,
         });
@@ -402,7 +425,7 @@ export function useChatRuntime() {
         abortControllerRef.current = null;
       }
     },
-    [handleComplete, handleError]
+    [handleComplete, handleError, org]
   );
 
   // Combine messages with streaming message if present.

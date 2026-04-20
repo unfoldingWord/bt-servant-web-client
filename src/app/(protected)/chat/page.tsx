@@ -5,11 +5,13 @@ import { UserMenu } from "@/components/user-menu";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
+const DEFAULT_ORG = process.env.DEFAULT_ORG || "unfoldingWord";
+
 export default async function ChatPage() {
   const session = await auth();
 
   return (
-    <AssistantProvider>
+    <AssistantProvider defaultOrg={DEFAULT_ORG}>
       <div className="flex h-dvh flex-col overscroll-none bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
         <header className="flex items-center justify-between bg-transparent px-4 py-3">
           <div className="flex items-center gap-2">

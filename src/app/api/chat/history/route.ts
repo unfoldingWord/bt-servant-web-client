@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { getChatHistory } from "@/lib/engine-client";
+import { validateOrg } from "@/lib/validate-org";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
@@ -12,8 +13,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
+    const org = validateOrg(searchParams.get("org"));
 
-    const history = await getChatHistory(session.user.id, limit, offset);
+    const history = await getChatHistory(session.user.id, limit, offset, org);
 
     return NextResponse.json(history);
   } catch (error) {

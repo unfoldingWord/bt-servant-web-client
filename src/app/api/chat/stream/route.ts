@@ -1,17 +1,18 @@
 import { auth } from "@/auth";
+import { validateOrg } from "@/lib/validate-org";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
 const ENGINE_BASE_URL = process.env.ENGINE_BASE_URL!;
 const ENGINE_API_KEY = process.env.ENGINE_API_KEY!;
 const CLIENT_ID = process.env.CLIENT_ID || "web";
-const DEFAULT_ORG = process.env.DEFAULT_ORG || "unfoldingWord";
 
 const ChatStreamRequestSchema = z.object({
   message: z.string(),
   message_type: z.enum(["text", "audio"]).default("text"),
   audio_base64: z.string().optional(),
   audio_format: z.string().optional(),
+  org: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           user_id: session.user.id,
-          org: DEFAULT_ORG,
+          org: validateOrg(parsed.org),
           message: parsed.message,
           message_type: parsed.message_type,
           client_id: CLIENT_ID,
