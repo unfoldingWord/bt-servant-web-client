@@ -142,9 +142,10 @@ export function useChatRuntime(org: string) {
 
   // Load history on mount and when org changes
   useEffect(() => {
-    // On org change, reset state and reload
+    // On org change, reset streaming state and reload history.
+    // Don't clear messages yet — swap them in one shot after history
+    // loads so the thread doesn't briefly flash the welcome screen.
     abortControllerRef.current?.abort();
-    setMessages([]);
     setStreamingText("");
     setIsLoading(false);
     setStatusMessage(null);
@@ -153,7 +154,7 @@ export function useChatRuntime(org: string) {
     const historyAbort = new AbortController();
 
     loadHistory(historyAbort.signal).then((historyMessages) => {
-      if (historyMessages.length > 0) {
+      if (!historyAbort.signal.aborted) {
         setMessages(historyMessages);
       }
     });
