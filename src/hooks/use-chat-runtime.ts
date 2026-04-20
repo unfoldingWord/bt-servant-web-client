@@ -66,7 +66,7 @@ function createMessage(
   };
 }
 
-export function useChatRuntime() {
+export function useChatRuntime(org: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -92,7 +92,9 @@ export function useChatRuntime() {
   // Load chat history and convert to ChatMessage format
   const loadHistory = useCallback(async (): Promise<ChatMessage[]> => {
     try {
-      const response = await fetch("/api/chat/history");
+      const response = await fetch(
+        `/api/chat/history?org=${encodeURIComponent(org)}`
+      );
       if (!response.ok) {
         return [];
       }
@@ -127,18 +129,24 @@ export function useChatRuntime() {
     } catch {
       return [];
     }
-  }, []);
+  }, [org]);
 
-  // Load history on mount
+  // Load history on mount and when org changes
   useEffect(() => {
-    if (!historyLoadedRef.current) {
-      historyLoadedRef.current = true;
-      loadHistory().then((historyMessages) => {
-        if (historyMessages.length > 0) {
-          setMessages(historyMessages);
-        }
-      });
-    }
+    // On org change, reset state and reload
+    historyLoadedRef.current = true;
+    abortControllerRef.current?.abort();
+    setMessages([]);
+    setStreamingText("");
+    setIsLoading(false);
+    setStatusMessage(null);
+    pendingCompleteRef.current = null;
+
+    loadHistory().then((historyMessages) => {
+      if (historyMessages.length > 0) {
+        setMessages(historyMessages);
+      }
+    });
   }, [loadHistory]);
 
   // Finalize a pending completion — called by AnimatedText when animation catches up
@@ -271,6 +279,7 @@ export function useChatRuntime() {
             message_type: audioBase64 ? "audio" : "text",
             audio_base64: audioBase64,
             audio_format: audioFormat,
+            org,
           }),
           signal: abortController.signal,
         });
@@ -402,7 +411,7 @@ export function useChatRuntime() {
         abortControllerRef.current = null;
       }
     },
-    [handleComplete, handleError]
+    [handleComplete, handleError, org]
   );
 
   // Combine messages with streaming message if present.
