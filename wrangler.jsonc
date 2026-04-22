@@ -25,6 +25,7 @@
         "ENGINE_BASE_URL": "https://staging-api.btservant.ai",
         "CLIENT_ID": "web",
         "DEFAULT_ORG": "unfoldingWord",
+        "NEXT_PUBLIC_ENABLE_ORG_SWITCHER": "true",
       },
     },
   },

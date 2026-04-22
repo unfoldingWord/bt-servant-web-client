@@ -104,6 +104,9 @@ src/
    ENGINE_BASE_URL=http://localhost:8787  # Local worker, or https://your-worker.workers.dev
    ENGINE_API_KEY=<your-worker-api-key>   # Must match worker's ENGINE_API_KEY
    CLIENT_ID=web
+
+   # Feature flags (client-side; must be prefixed NEXT_PUBLIC_* to be inlined at build time)
+   NEXT_PUBLIC_ENABLE_ORG_SWITCHER=false  # Set to "true" to show the org switcher in the user menu. Defaults to off.
    ```
 
 5. Run the development server:
