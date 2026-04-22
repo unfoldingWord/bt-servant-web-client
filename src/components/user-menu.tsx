@@ -11,11 +11,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useChatContext } from "@/components/providers/assistant-provider";
+import { ORG_SWITCHER_ENABLED } from "@/lib/feature-flags";
 
 const ORG_OPTIONS = ["unfoldingWord", "wordcollective"] as const;
-
-const ORG_SWITCHER_ENABLED =
-  process.env.NEXT_PUBLIC_ENABLE_ORG_SWITCHER === "true";
 
 interface UserMenuProps {
   userInitial: string;

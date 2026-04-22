@@ -3,6 +3,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime } from "@/hooks/use-chat-runtime";
 import { useOrg } from "@/hooks/use-org";
+import { ORG_SWITCHER_ENABLED } from "@/lib/feature-flags";
 import { createContext, useContext, ReactNode } from "react";
 
 interface ChatContextValue {
@@ -37,7 +38,7 @@ export function AssistantProvider({
   children: ReactNode;
   defaultOrg: string;
 }) {
-  const { org, setOrg } = useOrg(defaultOrg);
+  const { org, setOrg } = useOrg(defaultOrg, ORG_SWITCHER_ENABLED);
   const {
     runtime,
     sendMessage,
