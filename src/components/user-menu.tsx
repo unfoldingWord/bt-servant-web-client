@@ -14,6 +14,9 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 
 const ORG_OPTIONS = ["unfoldingWord", "wordcollective"] as const;
 
+const ORG_SWITCHER_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_ORG_SWITCHER === "true";
+
 interface UserMenuProps {
   userInitial: string;
 }
@@ -40,24 +43,28 @@ export function UserMenu({ userInitial }: UserMenuProps) {
         align="end"
         className="w-56 border-[#00000015] bg-white shadow-lg dark:border-[#6c6a6040] dark:bg-[#1f1e1b]"
       >
-        <div className="px-2 py-2">
-          <label className="flex items-center gap-2 text-xs font-medium text-[#6b6a68] dark:text-[#9a9893]">
-            <BuildingIcon className="h-3.5 w-3.5" />
-            Organization
-          </label>
-          <select
-            value={org}
-            onChange={(e) => setOrg(e.target.value)}
-            className="mt-1 w-full rounded-md border border-[#00000015] bg-[#f5f5f0] px-2 py-1.5 text-sm text-[#1a1a18] outline-none focus:border-[#ae5630] focus:ring-1 focus:ring-[#ae5630] dark:border-[#6c6a6040] dark:bg-[#393937] dark:text-[#eee]"
-          >
-            {ORG_OPTIONS.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </div>
-        <DropdownMenuSeparator className="bg-[#00000010] dark:bg-[#6c6a6030]" />
+        {ORG_SWITCHER_ENABLED && (
+          <>
+            <div className="px-2 py-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-[#6b6a68] dark:text-[#9a9893]">
+                <BuildingIcon className="h-3.5 w-3.5" />
+                Organization
+              </label>
+              <select
+                value={org}
+                onChange={(e) => setOrg(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[#00000015] bg-[#f5f5f0] px-2 py-1.5 text-sm text-[#1a1a18] outline-none focus:border-[#ae5630] focus:ring-1 focus:ring-[#ae5630] dark:border-[#6c6a6040] dark:bg-[#393937] dark:text-[#eee]"
+              >
+                {ORG_OPTIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <DropdownMenuSeparator className="bg-[#00000010] dark:bg-[#6c6a6030]" />
+          </>
+        )}
         <form action="/api/auth/signout" method="POST">
           <input type="hidden" name="csrfToken" value={csrfToken} />
           <input type="hidden" name="callbackUrl" value="/login" />
