@@ -57,6 +57,8 @@ jobs:
 
       - name: Build for Cloudflare
         run: npx opennextjs-cloudflare build
+        env:
+          NEXT_PUBLIC_ENABLE_ORG_SWITCHER: "true"
 
       - name: Deploy to Staging
         run: npx opennextjs-cloudflare deploy --env staging
