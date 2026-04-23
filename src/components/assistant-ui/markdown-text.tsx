@@ -9,33 +9,17 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import {
-  Children,
-  isValidElement,
-  type FC,
-  type ReactNode,
-  memo,
-  useState,
-} from "react";
+import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
 import { cn } from "@/lib/utils";
-
-const VIDEO_HREF_RE = /\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i;
-
-function hasImageChild(children: ReactNode): boolean {
-  return Children.toArray(children).some(
-    (c) =>
-      isValidElement(c) &&
-      typeof (c.props as { src?: unknown })?.src === "string"
-  );
-}
 
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkDedupeVideoLinks]}
       className="prose prose-neutral dark:prose-invert max-w-none"
       components={defaultComponents}
     />
@@ -116,7 +100,9 @@ const defaultComponents = memoizeMarkdownComponents({
     />
   ),
   a: ({ className, href, children, ...props }) => {
-    if (href && VIDEO_HREF_RE.test(href) && hasImageChild(children)) {
+    const isVideoFirst =
+      (props as { "data-video-first"?: string })["data-video-first"] === "true";
+    if (href && isVideoFirst) {
       return (
         <video
           src={href}
