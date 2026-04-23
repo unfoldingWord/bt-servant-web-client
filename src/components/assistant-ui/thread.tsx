@@ -24,10 +24,29 @@ import {
   faCircleInfo,
   faArrowDown,
 } from "@fortawesome/pro-regular-svg-icons";
-import { useState, useEffect, useRef, useCallback, type FC } from "react";
+import {
+  Children,
+  isValidElement,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type FC,
+  type ReactNode,
+} from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+
+const VIDEO_HREF_RE = /\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i;
+
+function hasImageChild(children: ReactNode): boolean {
+  return Children.toArray(children).some(
+    (c) =>
+      isValidElement(c) &&
+      typeof (c.props as { src?: unknown })?.src === "string"
+  );
+}
 
 // Animation constants
 const CHARS_PER_TICK = 2;
@@ -70,15 +89,32 @@ const streamingMarkdownComponents = {
       {...props}
     />
   ),
-  a: ({ node: _n, className, ...props }: any) => (
-    <a
-      className={cn(
-        "text-primary font-medium underline underline-offset-4",
-        className
-      )}
-      {...props}
-    />
-  ),
+  a: ({ node: _n, className, href, children, ...props }: any) => {
+    if (href && VIDEO_HREF_RE.test(href) && hasImageChild(children)) {
+      return (
+        <video
+          src={href}
+          controls
+          preload="metadata"
+          className="my-5 h-auto max-w-full rounded-md"
+        />
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          "text-primary font-medium underline underline-offset-4",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
   ul: ({ node: _n, className, ...props }: any) => (
     <ul
       className={cn("my-5 ml-6 list-disc [&>li]:mt-2", className)}
