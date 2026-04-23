@@ -24,29 +24,11 @@ import {
   faCircleInfo,
   faArrowDown,
 } from "@fortawesome/pro-regular-svg-icons";
-import {
-  Children,
-  isValidElement,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  type FC,
-  type ReactNode,
-} from "react";
+import { useState, useEffect, useRef, useCallback, type FC } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
 import { cn } from "@/lib/utils";
-
-const VIDEO_HREF_RE = /\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i;
-
-function hasImageChild(children: ReactNode): boolean {
-  return Children.toArray(children).some(
-    (c) =>
-      isValidElement(c) &&
-      typeof (c.props as { src?: unknown })?.src === "string"
-  );
-}
 
 // Animation constants
 const CHARS_PER_TICK = 2;
@@ -90,7 +72,8 @@ const streamingMarkdownComponents = {
     />
   ),
   a: ({ node: _n, className, href, children, ...props }: any) => {
-    if (href && VIDEO_HREF_RE.test(href) && hasImageChild(children)) {
+    const isVideoFirst = props["data-video-first"] === "true";
+    if (href && isVideoFirst) {
       return (
         <video
           src={href}
@@ -522,7 +505,7 @@ const AnimatedText: FC<{
 
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkDedupeVideoLinks]}
       components={streamingMarkdownComponents}
     >
       {displayedText}
