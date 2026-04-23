@@ -9,11 +9,28 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
+import {
+  Children,
+  isValidElement,
+  type FC,
+  type ReactNode,
+  memo,
+  useState,
+} from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+
+const VIDEO_HREF_RE = /\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i;
+
+function hasImageChild(children: ReactNode): boolean {
+  return Children.toArray(children).some(
+    (c) =>
+      isValidElement(c) &&
+      typeof (c.props as { src?: unknown })?.src === "string"
+  );
+}
 
 const MarkdownTextImpl = () => {
   return (
@@ -98,15 +115,32 @@ const defaultComponents = memoizeMarkdownComponents({
       {...props}
     />
   ),
-  a: ({ className, ...props }) => (
-    <a
-      className={cn(
-        "text-primary font-medium underline underline-offset-4",
-        className
-      )}
-      {...props}
-    />
-  ),
+  a: ({ className, href, children, ...props }) => {
+    if (href && VIDEO_HREF_RE.test(href) && hasImageChild(children)) {
+      return (
+        <video
+          src={href}
+          controls
+          preload="metadata"
+          className="my-5 h-auto max-w-full rounded-md"
+        />
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          "text-primary font-medium underline underline-offset-4",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
   ul: ({ className, ...props }) => (
     <ul
       className={cn("my-5 ml-6 list-disc [&>li]:mt-2", className)}
