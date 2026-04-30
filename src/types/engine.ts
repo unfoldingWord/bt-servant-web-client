@@ -12,11 +12,20 @@ export interface ChatRequest {
   org?: string; // Organization for MCP server selection (defaults to DEFAULT_ORG)
 }
 
+export type Attachment = {
+  type: "pdf";
+  url: string;
+  filename: string;
+  size_bytes: number;
+  mime_type: "application/pdf";
+};
+
 export interface ChatResponse {
   responses: string[];
   response_language: string;
   voice_audio_base64: string | null;
   voice_audio_url?: string;
+  attachments?: Attachment[];
 }
 
 export interface UserPreferences {
@@ -29,6 +38,7 @@ export interface ChatHistoryEntry {
   timestamp?: number;
   created_at?: string | null;
   voice_audio_url?: string | null;
+  attachments?: Attachment[] | null;
 }
 
 export interface ChatHistoryResponse {

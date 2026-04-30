@@ -6,6 +6,7 @@ import {
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type {
+  Attachment,
   ChatResponse,
   ChatHistoryResponse,
   SSEEvent,
@@ -19,6 +20,7 @@ interface ChatMessage {
   audioBase64?: string;
   audioUrl?: string;
   isStreaming?: boolean;
+  attachments?: Attachment[];
 }
 
 function toThreadMessage(message: ChatMessage): ThreadMessageLike {
@@ -32,6 +34,7 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
         audioBase64: message.audioBase64,
         audioUrl: message.audioUrl,
         isStreaming: message.isStreaming,
+        attachments: message.attachments,
       },
     },
   };
@@ -53,7 +56,12 @@ function createMessage(
   id: string,
   role: "user" | "assistant",
   content: string,
-  opts?: { audioBase64?: string; audioUrl?: string; isStreaming?: boolean }
+  opts?: {
+    audioBase64?: string;
+    audioUrl?: string;
+    isStreaming?: boolean;
+    attachments?: Attachment[];
+  }
 ): ChatMessage {
   return {
     id,
@@ -63,6 +71,7 @@ function createMessage(
     audioBase64: opts?.audioBase64,
     audioUrl: opts?.audioUrl,
     isStreaming: opts?.isStreaming,
+    attachments: opts?.attachments,
   };
 }
 
@@ -128,6 +137,9 @@ export function useChatRuntime(org: string) {
               : new Date(),
             audioUrl: entry.voice_audio_url
               ? `/api/audio?url=${encodeURIComponent(entry.voice_audio_url)}`
+              : undefined,
+            attachments: entry.attachments?.length
+              ? entry.attachments
               : undefined,
           });
         });
@@ -197,6 +209,7 @@ export function useChatRuntime(org: string) {
       {
         audioBase64: data.voice_audio_base64 || undefined,
         audioUrl,
+        attachments: data.attachments?.length ? data.attachments : undefined,
       }
     );
 
