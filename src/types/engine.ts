@@ -12,11 +12,24 @@ export interface ChatRequest {
   org?: string; // Organization for MCP server selection (defaults to DEFAULT_ORG)
 }
 
+export type PdfAttachment = {
+  type: "pdf";
+  url: string;
+  filename: string;
+  size_bytes: number;
+  mime_type: "application/pdf";
+};
+
+// Discriminated by `type`. Adding a new variant (e.g. AudioAttachment) here
+// forces consumers that switch on `type` to handle it via exhaustiveness checks.
+export type Attachment = PdfAttachment;
+
 export interface ChatResponse {
   responses: string[];
   response_language: string;
   voice_audio_base64: string | null;
   voice_audio_url?: string;
+  attachments?: Attachment[];
 }
 
 export interface UserPreferences {
@@ -29,6 +42,7 @@ export interface ChatHistoryEntry {
   timestamp?: number;
   created_at?: string | null;
   voice_audio_url?: string | null;
+  attachments?: Attachment[] | null;
 }
 
 export interface ChatHistoryResponse {

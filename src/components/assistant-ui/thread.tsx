@@ -1,6 +1,7 @@
 "use client";
 
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { AttachmentChips } from "@/components/assistant-ui/attachment-chips";
 import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
@@ -29,6 +30,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
 import { cn } from "@/lib/utils";
+import type { Attachment } from "@/types/engine";
 
 // Animation constants
 const CHARS_PER_TICK = 2;
@@ -525,6 +527,10 @@ const AssistantMessage: FC = () => {
     ({ message }) =>
       (message.metadata?.custom?.isStreaming as boolean | undefined) ?? false
   );
+  const attachments = useAssistantState(
+    ({ message }) =>
+      message.metadata?.custom?.attachments as Attachment[] | undefined
+  );
   const messageText = useAssistantState(({ message }) => {
     const firstPart = message.content[0];
     return firstPart?.type === "text" ? firstPart.text : "";
@@ -539,6 +545,7 @@ const AssistantMessage: FC = () => {
 
   const hasAudio = !isStreaming && (!!audioBase64 || !!audioUrl);
   const hasText = !!messageText;
+  const hasAttachments = !isStreaming && !!attachments?.length;
 
   return (
     <div className="relative mb-8 pl-2">
@@ -560,6 +567,7 @@ const AssistantMessage: FC = () => {
               )}
             </div>
           )}
+          {hasAttachments && <AttachmentChips attachments={attachments!} />}
         </div>
       ) : isStreaming ? (
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
@@ -574,6 +582,8 @@ const AssistantMessage: FC = () => {
           <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
             <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
           </div>
+
+          {hasAttachments && <AttachmentChips attachments={attachments!} />}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0">
             <ActionBarPrimitive.Root
@@ -594,6 +604,8 @@ const AssistantMessage: FC = () => {
             </ActionBarPrimitive.Root>
           </div>
         </>
+      ) : hasAttachments ? (
+        <AttachmentChips attachments={attachments!} />
       ) : isLast && !isLoading ? (
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
