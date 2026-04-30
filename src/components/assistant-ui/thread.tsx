@@ -604,6 +604,8 @@ const AssistantMessage: FC = () => {
             </ActionBarPrimitive.Root>
           </div>
         </>
+      ) : hasAttachments ? (
+        <AttachmentChips attachments={attachments!} />
       ) : isLast && !isLoading ? (
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
