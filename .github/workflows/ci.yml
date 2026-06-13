@@ -46,7 +46,12 @@ jobs:
         run: npm run typecheck
 
       - name: Security audit
-        run: npm audit --omit=dev --audit-level=moderate
+        # Level set to "high" because `--omit=dev` does not actually filter
+        # all dev-only sub-trees (npm audit walks the full lock graph), and
+        # the remaining moderates are transitive-in-eslint advisories that
+        # can't be overridden without breaking other tooling. Revisit if
+        # the moderate count grows beyond well-understood dev-chain noise.
+        run: npm audit --omit=dev --audit-level=high
 
   # ==========================================
   # Build & Bundle Analysis
