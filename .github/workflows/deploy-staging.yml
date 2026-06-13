@@ -55,10 +55,15 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
+      - name: Generate Cloudflare env types
+        # cloudflare-env.d.ts is gitignored; next build's typecheck depends
+        # on it for binding-typed access (CHAT_ORG_KV, etc.). Without this,
+        # the deploy fails with "Property 'CHAT_ORG_KV' does not exist on
+        # type 'CloudflareEnv'".
+        run: npm run cf-typegen
+
       - name: Build for Cloudflare
         run: npx opennextjs-cloudflare build
-        env:
-          NEXT_PUBLIC_ENABLE_ORG_SWITCHER: "true"
 
       - name: Deploy to Staging
         run: npx opennextjs-cloudflare deploy --env staging
