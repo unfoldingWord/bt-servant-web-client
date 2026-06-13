@@ -44,6 +44,25 @@ describe("resolveOrgForEmail", () => {
     expect(result).toBe("test-default");
     expect(putMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["empty string", ""],
+    ["path traversal", "../etc/passwd"],
+    ["slash", "foo/bar"],
+    ["whitespace", "  spaced  "],
+    ["overlong", "x".repeat(101)],
+    ["query-string injection", "uW?role=admin"],
+  ])(
+    "falls back to DEFAULT_ORG when CHAT_ORG_KV holds an invalid slug (%s)",
+    async (_label, badValue) => {
+      getMock.mockResolvedValueOnce(badValue);
+      const { resolveOrgForEmail } = await import("./org-resolver");
+
+      const result = await resolveOrgForEmail("user@example.com");
+
+      expect(result).toBe("test-default");
+    }
+  );
 });
 
 describe("provisionOrgForEmail", () => {

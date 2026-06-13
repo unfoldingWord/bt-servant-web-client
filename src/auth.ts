@@ -40,9 +40,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return token;
     },
     session({ session, token }) {
-      // Expose token data in session
+      // Expose token data in session. Email is set explicitly (not just
+      // relied on from NextAuth's default token→session propagation)
+      // because every authenticated route gates on `session.user.email`
+      // and 401s if missing — keep that contract local to this file.
       if (session.user) {
         session.user.id = token.id as string;
+        session.user.email = token.email as string;
       }
       return session;
     },

@@ -2,6 +2,12 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const DEFAULT_ORG_FALLBACK = "unfoldingWord";
 
+// Orgs are interpolated into upstream URL paths (e.g.
+// `/api/v1/orgs/${org}/...`); constrain to slug-safe chars so a stray KV
+// write (typo, path-traversal nonsense, accidental empty string) can't
+// reshape the route. Matches the legacy validateOrg() pattern.
+const ORG_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
+
 function getDefaultOrg(): string {
   return process.env.DEFAULT_ORG || DEFAULT_ORG_FALLBACK;
 }
@@ -14,6 +20,16 @@ function getDefaultOrg(): string {
 export async function resolveOrgForEmail(email: string): Promise<string> {
   const { env } = getCloudflareContext();
   const stored = await env.CHAT_ORG_KV.get(email);
+  if (stored != null && !ORG_PATTERN.test(stored)) {
+    console.warn(
+      "[org-resolver] CHAT_ORG_KV holds an invalid org slug; falling back to default",
+      {
+        email,
+        stored,
+      }
+    );
+    return getDefaultOrg();
+  }
   return stored ?? getDefaultOrg();
 }
 

@@ -45,6 +45,9 @@ jobs:
       - name: Type check (TypeScript)
         run: npm run typecheck
 
+      - name: Run tests
+        run: npm test
+
       - name: Security audit
         # Level set to "high" because `--omit=dev` does not actually filter
         # all dev-only sub-trees (npm audit walks the full lock graph), and
@@ -53,58 +56,12 @@ jobs:
         # the moderate count grows beyond well-understood dev-chain noise.
         run: npm audit --omit=dev --audit-level=high
 
-  # ==========================================
-  # Build & Bundle Analysis
-  # ==========================================
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: quality
-    # As of 2026-06, `next build` fails at the synthesized `/_global-error`
-    # prerender ("Cannot read properties of null (reading 'useContext')")
-    # on this Next 16 + React 19 combo, regardless of a user-defined
-    # global-error.tsx. The deploy path (opennextjs-cloudflare build) is
-    # affected by the same upstream issue. Marking advisory until the
-    # framework issue is resolved so it doesn't block unrelated PRs.
-    continue-on-error: true
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Configure Font Awesome Pro
-        run: |
-          echo "@fortawesome:registry=https://npm.fontawesome.com/" >> .npmrc
-          echo "//npm.fontawesome.com/:_authToken=${{ secrets.FONTAWESOME_TOKEN }}" >> .npmrc
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build application
-        run: npm run build
-
-      - name: Report bundle size
-        run: |
-          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          if [ -d ".next" ]; then
-            find .next -name "*.js" -type f -exec du -h {} \; | sort -rh | head -10 | while read size file; do
-              echo "| \`${file#.next/}\` | $size |" >> $GITHUB_STEP_SUMMARY
-            done
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Build completed successfully**" >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build
-          path: .next
-          retention-days: 1
+  # The previous "Build" job has been removed because `next build` fails on
+  # the synthesized `/_global-error` page prerender on the current Next 16 +
+  # React 19 combo — reproducible on `main` HEAD without any code changes
+  # from this branch. The deploy path (`opennextjs-cloudflare build`) is hit
+  # by the same upstream issue. Keeping the job with `continue-on-error: true`
+  # silently misrepresents the build state (workflow reports `success` while
+  # build fails), so it is removed outright until the upstream prerender bug
+  # is resolved. Restoration tracked at:
+  #   https://github.com/unfoldingWord/bt-servant-web-client/issues/42
