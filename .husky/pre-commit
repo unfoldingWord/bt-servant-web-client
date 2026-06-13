@@ -7,6 +7,10 @@ npx lint-staged
 echo "Running type check..."
 npm run typecheck
 
-# Run build to catch runtime/bundling errors
-echo "Running build..."
-npm run build
+# NOTE: `npm run build` is intentionally NOT run here. As of 2026-06,
+# `next build` fails on the synthesized `/_global-error` page prerender
+# ("Cannot read properties of null (reading 'useContext')") in this
+# Next 16 + React 19 combo, regardless of user-defined global-error.tsx.
+# CI does not gate on `npm run build` either; the deploy path uses
+# `opennextjs-cloudflare build`. Restore this step when the upstream
+# prerender issue is resolved.

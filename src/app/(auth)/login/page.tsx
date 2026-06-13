@@ -8,18 +8,10 @@ import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState("");
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     await signIn("google", { callbackUrl: "/chat" });
-  };
-
-  const handleEmailSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) return;
-    setIsLoading(true);
-    await signIn("email", { email, callbackUrl: "/chat" });
   };
 
   return (
@@ -92,46 +84,6 @@ export default function LoginPage() {
                 </svg>
                 {isLoading ? "Signing in..." : "Continue with Google"}
               </button>
-
-              {/* Divider */}
-              <div className="my-5 flex items-center gap-3 sm:my-6 sm:gap-4">
-                <div className="h-px flex-1 bg-[#00000015] dark:bg-[#6c6a6040]" />
-                <span className="text-xs text-[#8a8985] sm:text-sm dark:text-[#6b6a68]">
-                  or
-                </span>
-                <div className="h-px flex-1 bg-[#00000015] dark:bg-[#6c6a6040]" />
-              </div>
-
-              {/* Email Form */}
-              <form onSubmit={handleEmailSignIn}>
-                <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-1 block text-sm font-medium text-[#1a1a18] sm:mb-1.5 dark:text-[#eee]"
-                  >
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    id="email"
-                    name="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border border-[#00000015] bg-white px-3 py-2 text-sm text-[#1a1a18] placeholder:text-[#8a8985] focus:border-[#ae5630] focus:ring-2 focus:ring-[#ae5630]/20 focus:outline-none sm:px-4 sm:py-2.5 sm:text-base dark:border-[#6c6a6040] dark:bg-[#2b2a27] dark:text-[#eee] dark:placeholder:text-[#6b6a68]"
-                    placeholder="you@example.com"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="mt-16 w-full rounded-lg bg-[#ae5630] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#c4633a] hover:shadow-md active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 sm:mt-20 sm:py-3 sm:text-base"
-                >
-                  {isLoading ? "Signing in..." : "Sign in"}
-                </button>
-              </form>
             </div>
 
             {/* Footer */}

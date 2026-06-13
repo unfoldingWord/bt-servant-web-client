@@ -17,6 +17,13 @@
     "CLIENT_ID": "web",
     "DEFAULT_ORG": "unfoldingWord",
   },
+  "kv_namespaces": [
+    {
+      "binding": "CHAT_ORG_KV",
+      "id": "30ed9783a3ca41d780fbf07491687453",
+      "preview_id": "a15138df26df40cd9f02277d0277defb",
+    },
+  ],
   "env": {
     "staging": {
       "name": "bt-servant-web-client-staging",
@@ -25,8 +32,14 @@
         "ENGINE_BASE_URL": "https://staging-api.btservant.ai",
         "CLIENT_ID": "web",
         "DEFAULT_ORG": "unfoldingWord",
-        "NEXT_PUBLIC_ENABLE_ORG_SWITCHER": "true",
       },
+      "kv_namespaces": [
+        {
+          "binding": "CHAT_ORG_KV",
+          "id": "dd8fa59da1c84b4fbfde6726ad885656",
+          "preview_id": "32888f0546d14bc68cbab9af0f5c36de",
+        },
+      ],
     },
   },
 }

@@ -137,6 +137,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Cloudflare-generated environment types (regenerated via cf-typegen):
+    "cloudflare-env.d.ts",
     // Cloudflare build output:
     ".open-next/**",
     ".wrangler/**",

@@ -75,7 +75,7 @@ function createMessage(
   };
 }
 
-export function useChatRuntime(org: string) {
+export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -101,10 +101,7 @@ export function useChatRuntime(org: string) {
   const loadHistory = useCallback(
     async (signal?: AbortSignal): Promise<ChatMessage[]> => {
       try {
-        const response = await fetch(
-          `/api/chat/history?org=${encodeURIComponent(org)}`,
-          { signal }
-        );
+        const response = await fetch(`/api/chat/history`, { signal });
         if (!response.ok) {
           return [];
         }
@@ -149,14 +146,11 @@ export function useChatRuntime(org: string) {
         return [];
       }
     },
-    [org]
+    []
   );
 
-  // Load history on mount and when org changes
+  // Load history on mount
   useEffect(() => {
-    // On org change, reset streaming state and reload history.
-    // Don't clear messages yet — swap them in one shot after history
-    // loads so the thread doesn't briefly flash the welcome screen.
     abortControllerRef.current?.abort();
     setStreamingText("");
     setIsLoading(false);
@@ -307,7 +301,6 @@ export function useChatRuntime(org: string) {
             message_type: audioBase64 ? "audio" : "text",
             audio_base64: audioBase64,
             audio_format: audioFormat,
-            org,
           }),
           signal: abortController.signal,
         });
@@ -439,7 +432,7 @@ export function useChatRuntime(org: string) {
         abortControllerRef.current = null;
       }
     },
-    [handleComplete, handleError, org]
+    [handleComplete, handleError]
   );
 
   // Combine messages with streaming message if present.

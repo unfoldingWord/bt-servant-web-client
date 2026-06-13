@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { validateOrg } from "@/lib/validate-org";
+import { resolveOrgForEmail } from "@/lib/org-resolver";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -12,13 +12,13 @@ const ChatStreamRequestSchema = z.object({
   message_type: z.enum(["text", "audio"]).default("text"),
   audio_base64: z.string().optional(),
   audio_format: z.string().optional(),
-  org: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
   // Verify authentication
   const session = await auth();
-  if (!session?.user?.id) {
+  const email = session?.user?.email;
+  if (!session?.user?.id || !email) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Resolve org from CHAT_ORG_KV (server-side source of truth). The client
+  // does not get to choose its own org — see docs/maintenance.md for how
+  // partner-specific overrides are set.
+  const org = await resolveOrgForEmail(email);
+
   // Proxy SSE stream from upstream
   try {
     const upstreamResponse = await fetch(
@@ -57,7 +62,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           user_id: session.user.id,
-          org: validateOrg(parsed.org),
+          org,
           message: parsed.message,
           message_type: parsed.message_type,
           client_id: CLIENT_ID,
