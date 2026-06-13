@@ -2,8 +2,6 @@
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime } from "@/hooks/use-chat-runtime";
-import { useOrg } from "@/hooks/use-org";
-import { ORG_SWITCHER_ENABLED } from "@/lib/feature-flags";
 import { createContext, useContext, ReactNode } from "react";
 
 interface ChatContextValue {
@@ -18,8 +16,6 @@ interface ChatContextValue {
   streamingText: string;
   finalizeComplete: () => void;
   isCompleting: boolean;
-  org: string;
-  setOrg: (org: string) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -31,14 +27,7 @@ export function useChatContext() {
   return ctx;
 }
 
-export function AssistantProvider({
-  children,
-  defaultOrg,
-}: {
-  children: ReactNode;
-  defaultOrg: string;
-}) {
-  const { org, setOrg } = useOrg(defaultOrg, ORG_SWITCHER_ENABLED);
+export function AssistantProvider({ children }: { children: ReactNode }) {
   const {
     runtime,
     sendMessage,
@@ -48,7 +37,7 @@ export function AssistantProvider({
     streamingText,
     finalizeComplete,
     isCompleting,
-  } = useChatRuntime(org);
+  } = useChatRuntime();
 
   return (
     <ChatContext.Provider
@@ -60,8 +49,6 @@ export function AssistantProvider({
         streamingText,
         finalizeComplete,
         isCompleting,
-        org,
-        setOrg,
       }}
     >
       <AssistantRuntimeProvider runtime={runtime}>

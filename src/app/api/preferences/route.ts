@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { getUserPreferences, updateUserPreferences } from "@/lib/engine-client";
-import { validateOrg } from "@/lib/validate-org";
+import { resolveOrgForEmail } from "@/lib/org-resolver";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -8,14 +8,14 @@ const PreferencesSchema = z.object({
   response_language: z.string().optional(),
 });
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await auth();
-  if (!session?.user?.id) {
+  const email = session?.user?.email;
+  if (!session?.user?.id || !email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { searchParams } = new URL(req.url);
-  const org = validateOrg(searchParams.get("org"));
+  const org = await resolveOrgForEmail(email);
 
   try {
     const preferences = await getUserPreferences(session.user.id, org);
@@ -31,12 +31,12 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) {
+  const email = session?.user?.email;
+  if (!session?.user?.id || !email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { searchParams } = new URL(req.url);
-  const org = validateOrg(searchParams.get("org"));
+  const org = await resolveOrgForEmail(email);
 
   try {
     const body = await req.json();
