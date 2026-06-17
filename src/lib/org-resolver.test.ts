@@ -49,9 +49,9 @@ describe("resolveOrgForEmail", () => {
     ["empty string", ""],
     ["path traversal", "../etc/passwd"],
     ["slash", "foo/bar"],
-    ["whitespace", "  spaced  "],
     ["overlong", "x".repeat(101)],
     ["query-string injection", "uW?role=admin"],
+    ["control char", "uW\n"],
   ])(
     "falls back to DEFAULT_ORG when CHAT_ORG_KV holds an invalid slug (%s)",
     async (_label, badValue) => {
@@ -61,6 +61,24 @@ describe("resolveOrgForEmail", () => {
       const result = await resolveOrgForEmail("user@example.com");
 
       expect(result).toBe("test-default");
+    }
+  );
+
+  it.each([
+    "Test Organization",
+    "Bible Society of Jordan",
+    "uW",
+    "unfolding-Word",
+    "PBT",
+  ])(
+    "accepts real org names that include spaces / mixed case (%s)",
+    async (orgName) => {
+      getMock.mockResolvedValueOnce(orgName);
+      const { resolveOrgForEmail } = await import("./org-resolver");
+
+      const result = await resolveOrgForEmail("user@example.com");
+
+      expect(result).toBe(orgName);
     }
   );
 });
