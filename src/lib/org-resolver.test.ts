@@ -52,6 +52,9 @@ describe("resolveOrgForEmail", () => {
     ["overlong", "x".repeat(101)],
     ["query-string injection", "uW?role=admin"],
     ["control char", "uW\n"],
+    ["leading space", " uW"],
+    ["trailing space", "Bible Society of Jordan "],
+    ["only whitespace", "   "],
   ])(
     "falls back to DEFAULT_ORG when CHAT_ORG_KV holds an invalid slug (%s)",
     async (_label, badValue) => {
