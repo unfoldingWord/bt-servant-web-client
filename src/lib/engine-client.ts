@@ -16,7 +16,7 @@ export async function getUserPreferences(
   org: string = DEFAULT_ORG
 ): Promise<UserPreferences> {
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/orgs/${org}/users/${userId}/preferences`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${encodeURIComponent(org)}/users/${userId}/preferences`,
     { headers: getAuthHeaders() }
   );
 
@@ -37,7 +37,7 @@ export async function updateUserPreferences(
   org: string = DEFAULT_ORG
 ): Promise<UserPreferences> {
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/orgs/${org}/users/${userId}/preferences`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${encodeURIComponent(org)}/users/${userId}/preferences`,
     {
       method: "PUT",
       headers: getAuthHeaders(),
@@ -64,7 +64,7 @@ export async function getChatHistory(
   });
 
   const response = await fetch(
-    `${ENGINE_BASE_URL}/api/v1/orgs/${org}/users/${userId}/history?${params}`,
+    `${ENGINE_BASE_URL}/api/v1/orgs/${encodeURIComponent(org)}/users/${userId}/history?${params}`,
     { headers: getAuthHeaders() }
   );
 

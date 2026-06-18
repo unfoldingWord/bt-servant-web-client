@@ -2,11 +2,15 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const DEFAULT_ORG_FALLBACK = "unfoldingWord";
 
-// Orgs are interpolated into upstream URL paths (e.g.
-// `/api/v1/orgs/${org}/...`); constrain to slug-safe chars so a stray KV
-// write (typo, path-traversal nonsense, accidental empty string) can't
-// reshape the route. Matches the legacy validateOrg() pattern.
-const ORG_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
+// Orgs are URL-encoded before being interpolated into upstream paths
+// (see `src/lib/engine-client.ts`). The pattern here is a sanity gate
+// against a stray KV write — empty string, path-traversal nonsense,
+// control characters, leading/trailing whitespace — not a strict slug
+// check. Internal spaces are allowed because real org names in staging
+// include them (e.g. "Bible Society of Jordan", "Test Organization"),
+// but the first and last character must be alphanumeric so a trailing
+// space typo can't silently route a user to a different KV key.
+const ORG_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]{0,98}[a-zA-Z0-9])?$/;
 
 function getDefaultOrg(): string {
   return process.env.DEFAULT_ORG || DEFAULT_ORG_FALLBACK;
