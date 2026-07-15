@@ -79,7 +79,7 @@ src/
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+ (required by Wrangler 4.102+)
 - A running instance of bt-servant-worker (Cloudflare Worker backend)
 - Google OAuth credentials (for Google sign-in)
 - A Font Awesome Pro npm token (the `@fortawesome/pro-*` packages are installed from the Font Awesome registry)
