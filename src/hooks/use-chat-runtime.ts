@@ -12,6 +12,9 @@ import type {
   SSEEvent,
 } from "@/types/engine";
 
+const FALLBACK_ERROR_MESSAGE =
+  "Sorry, I encountered an error. Please try again.";
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -386,8 +389,10 @@ export function useChatRuntime() {
                 handleComplete(parsed.response);
                 handledTerminal = true;
               } else if (parsed.type === "error") {
+                // Log raw, show canned fallback — never render the worker's
+                // error string (may be a raw upstream API body) in the chat
                 console.error("[sse] error event:", parsed.error);
-                handleError(parsed.error);
+                handleError(FALLBACK_ERROR_MESSAGE);
                 handledTerminal = true;
               } else if (parsed.type === "keepalive") {
                 // no-op — lastEventTime already updated above
@@ -420,7 +425,7 @@ export function useChatRuntime() {
           return;
         }
         console.error("[sendMessage] error", error);
-        handleError("Sorry, I encountered an error. Please try again.");
+        handleError(FALLBACK_ERROR_MESSAGE);
       } finally {
         if (hardMaxTimer) clearTimeout(hardMaxTimer);
         if (inactivityTimer) clearInterval(inactivityTimer);
