@@ -146,10 +146,11 @@ export function useChatRuntime({
   const streamingTextRef = useRef(streamingText);
   const abortControllerRef = useRef<AbortController | null>(null);
   const sentAtRef = useRef<number | null>(null);
+  // Assigned during render, not in an effect: a send that happens in the
+  // same commit as a hint change must carry the new hint, and an effect
+  // would leave the ref one commit behind.
   const languageHintRef = useRef(languageHint);
-  useEffect(() => {
-    languageHintRef.current = languageHint;
-  }, [languageHint]);
+  languageHintRef.current = languageHint;
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);

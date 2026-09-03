@@ -663,6 +663,148 @@ describe("LocalePreferenceProvider — choose()", () => {
     expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
+  // Regression: the failure path must restore the last state the worker
+  // acknowledged, not the optimistic hint the pick replaced. An overtaken
+  // write that succeeded has already moved the worker on, so restoring the
+  // optimistic value would leave the hint, the chrome and storage disagreeing.
+  it("a failed pick falls back to what the worker acknowledged, not to the value it replaced", async () => {
+    let answerFirstPut!: () => void;
+    let puts = 0;
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse: () =>
+        ++puts === 1
+          ? new Promise<Response>(
+              (r) => (answerFirstPut = () => r(jsonResponse({})))
+            )
+          : failed(),
+    });
+    await preferencesRead(harness);
+
+    let overtaken!: Promise<void>;
+    act(() => {
+      overtaken = result.current.choose("pt-BR");
+    });
+    await act(async () => {}); // its PUT is in flight, so it is really sent
+    expect(harness.preferencePuts).toHaveLength(1);
+
+    let latest!: Promise<void>;
+    act(() => {
+      latest = result.current.choose("en");
+    });
+    await act(async () => {});
+
+    // The overtaken write lands (the worker now holds `pt`) and applies
+    // nothing; the latest pick then fails.
+    answerFirstPut();
+    await act(async () => {});
+    await act(async () => {});
+    await overtaken;
+    await latest;
+    await act(async () => {});
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("en") },
+    ]);
+    // Chrome, picker, hint and storage all agree on what the worker has.
+    expect(result.current.responseLanguageHint).toBe(
+      toResponseLanguage("pt-BR")
+    );
+    expect(result.current.locale).toBe("pt-BR");
+    expect(result.current.pendingLocale).toBeNull();
+    expect(document.documentElement.lang).toBe("pt-BR");
+    expect(consoleSpy.error).toHaveBeenCalledTimes(1);
+  });
+
+  // An overtaken step that fails changes nothing for the user, but a silent
+  // catch would hide a failing route.
+  it("warns when an overtaken write fails, and the latest pick still applies", async () => {
+    let answerFirstPut!: () => void;
+    let puts = 0;
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse: () =>
+        ++puts === 1
+          ? new Promise<Response>((r) => (answerFirstPut = () => r(failed())))
+          : jsonResponse({}),
+    });
+    await preferencesRead(harness);
+
+    let overtaken!: Promise<void>;
+    act(() => {
+      overtaken = result.current.choose("pt-BR");
+    });
+    await act(async () => {});
+    let latest!: Promise<void>;
+    act(() => {
+      latest = result.current.choose("en");
+    });
+    await act(async () => {});
+
+    answerFirstPut();
+    await act(async () => {});
+    await act(async () => {});
+    await overtaken;
+    await latest;
+    await act(async () => {});
+
+    expect(consoleSpy.warn).toHaveBeenCalledTimes(1);
+    expect(consoleSpy.warn.mock.calls[0][0]).toMatch(
+      /overtaken language write failed/
+    );
+    expect(harness.preferencePuts.at(-1)).toEqual({
+      response_language: toResponseLanguage("en"),
+    });
+    expect(result.current.locale).toBe("en");
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
+  // The pick aborted the mount-time GET and then failed, so nothing is known
+  // about what the worker holds. Without a restart the stored preference
+  // would stay unapplied until the next mount.
+  it("restarts the load when a pick that superseded it fails before anything was acknowledged", async () => {
+    let answerFirstGet!: (r: Response) => void;
+    let gets = 0;
+    let puts = 0;
+    const { result } = mount({
+      navigator: "en-US",
+      extraRoutes: {
+        [PREFERENCES_ROUTE]: (_url, init) => {
+          if (init?.method === "PUT") {
+            puts += 1;
+            return failed();
+          }
+          return ++gets === 1
+            ? new Promise<Response>((r) => (answerFirstGet = r))
+            : jsonResponse({ response_language: "pt" });
+        },
+      },
+    });
+    await waitFor(() => expect(gets).toBe(1), WAIT);
+    expect(result.current.ready).toBe(false);
+
+    await act(() => result.current.choose("pt-BR"));
+
+    // The failure triggered a second load, which delivers the stored value.
+    await waitFor(() => expect(gets).toBe(2), WAIT);
+    await act(async () => {});
+
+    expect(puts).toBe(1); // the failed pick, and no seed
+    expect(result.current.locale).toBe("pt-BR");
+    expect(result.current.responseLanguageHint).toBe("pt");
+    expect(result.current.pendingLocale).toBeNull();
+    expect(result.current.ready).toBe(true);
+    expect(consoleSpy.error).toHaveBeenCalledTimes(1);
+
+    // The superseded first GET answering late still changes nothing.
+    answerFirstGet(jsonResponse({ response_language: "en" }));
+    await act(async () => {});
+    expect(result.current.locale).toBe("pt-BR");
+  });
+
   it("resolves, logs one console.error and keeps the current locale when the PUT fails", async () => {
     const { harness, result } = mount({
       navigator: "en-US",

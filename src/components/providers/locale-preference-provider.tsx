@@ -42,8 +42,9 @@ interface LocalePreferenceContextValue {
    * one this client knows (absent = the worker uses what it has stored), the
    * browser-derived code once an empty GET has come back (the seed PUT may
    * still be pending), the stored code after a stored GET, the chosen code
-   * from the moment `choose` is called. A pick whose write fails restores
-   * the hint it replaced. Never the chrome's fallback locale.
+   * from the moment `choose` is called. A pick whose write fails falls back
+   * to the last hint the worker acknowledged. Never the chrome's fallback
+   * locale.
    */
   responseLanguageHint: string | undefined;
   /**
@@ -66,8 +67,10 @@ interface LocalePreferenceContextValue {
    * cannot end up storing an older one — which is what lets a reselection
    * of the applied locale reverse a pick whose `PUT` is still in flight. A
    * load still in flight is superseded. Resolves when this pick's write has settled or been
-   * skipped; never rejects (a failed write is logged with context, and the
-   * current locale and hint both stay).
+   * skipped; never rejects. A failed write is logged with context and the
+   * chrome, the picker and the hint fall back to the last state the worker
+   * acknowledged (or, if nothing has been acknowledged yet, the mount-time
+   * load runs again).
    */
   choose: (locale: Locale) => Promise<void>;
 }
@@ -146,21 +149,26 @@ export function LocalePreferenceProvider({
   const [responseLanguageHint, setResponseLanguageHint] = useState<
     string | undefined
   >(undefined);
-  // The hint as last published, readable from callbacks (a failed pick
-  // restores the hint it replaced). Written only through publishHint.
-  const hintRef = useRef<string | undefined>(undefined);
-  const publishHint = useCallback((hint: string | undefined) => {
-    hintRef.current = hint;
-    setResponseLanguageHint(hint);
-  }, []);
   // What the load or a pick delivered and has not applied yet (held, or one
   // render away from applying).
   const [loaded, setLoaded] = useState<Locale | null>(null);
   // The latest pick that has not reached the chrome yet, so the picker can
   // show it and a reselection of the applied locale can reverse it.
   const [pendingLocale, setPendingLocale] = useState<Locale | null>(null);
-  // The mount-time load, so `choose` can cancel it.
+  // The mount-time load, so `choose` can cancel it; bumping the nonce runs
+  // it again.
   const loadRef = useRef<AbortController | null>(null);
+  const [loadNonce, setLoadNonce] = useState(0);
+  // The last state the worker acknowledged: what a `GET` reported, or what
+  // a `PUT` stored. A failed pick falls back to this, never to the
+  // optimistic value it replaced — a write that was overtaken before it
+  // could apply may still have moved the worker on.
+  const ackedHintRef = useRef<string | undefined>(undefined);
+  const ackedLocaleRef = useRef<Locale | null>(null);
+  const acknowledge = useCallback((acked: Locale, hint: string | undefined) => {
+    ackedLocaleRef.current = acked;
+    ackedHintRef.current = hint;
+  }, []);
   // Picks are numbered so only the latest one writes and applies. Every
   // PUT (the first-visit seed included) runs one after another on this
   // chain. Aborting a fetch would not recall a PUT the server has already
@@ -195,14 +203,18 @@ export function LocalePreferenceProvider({
           // Hint only with a code this client knows; an unsupported stored
           // code falls back to the default locale for the chrome alone, and
           // the worker keeps replying in what it has stored.
-          publishHint(
+          const hint =
             toResponseLanguage(preferred) === stored.response_language
               ? stored.response_language
-              : undefined
-          );
+              : undefined;
+          acknowledge(preferred, hint);
+          setResponseLanguageHint(hint);
         } else {
           const browser = getClientLocale();
-          publishHint(toResponseLanguage(browser));
+          // Nothing stored: the browser code is what the worker will reply
+          // in once the seed lands, and what it falls back to if it does not.
+          acknowledge(browser, toResponseLanguage(browser));
+          setResponseLanguageHint(toResponseLanguage(browser));
           // The seed joins the write chain so a slow seed can never land
           // after a pick and store the browser code over the user's intent.
           const generation = chooseGenerationRef.current;
@@ -230,7 +242,7 @@ export function LocalePreferenceProvider({
     })();
 
     return () => controller.abort();
-  }, [enqueueWrite, publishHint]);
+  }, [enqueueWrite, acknowledge, loadNonce]);
 
   // Apply the loaded or chosen value once nothing is animating. Whatever
   // was pending has now reached the chrome, so the picker follows `locale`
@@ -251,8 +263,7 @@ export function LocalePreferenceProvider({
       const generation = ++chooseGenerationRef.current;
       setLoaded(null);
       setReady(true);
-      const previousHint = hintRef.current;
-      publishHint(toResponseLanguage(next));
+      setResponseLanguageHint(toResponseLanguage(next));
       setPendingLocale(next);
 
       const isLatest = () => generation === chooseGenerationRef.current;
@@ -261,15 +272,38 @@ export function LocalePreferenceProvider({
         if (!isLatest()) return;
         try {
           await saveLocalePreference(next);
+          // The worker holds this now, even if a newer pick has overtaken
+          // us and this step applies nothing.
+          acknowledge(next, toResponseLanguage(next));
           if (!isLatest()) return; // its own step will write and apply
           // Through the apply effect, so a pick landing mid-reply waits too.
           setLoaded(next);
         } catch (error) {
-          if (!isLatest()) return;
-          // The chrome snaps back (the radio follows `pendingLocale ??
-          // locale`); so does the hint.
+          if (!isLatest()) {
+            // The latest pick still writes and applies, so this is not the
+            // user's problem — but a silent catch would hide a failing route.
+            console.warn(
+              "[LocalePreferenceProvider] an overtaken language write failed",
+              { locale: next, error }
+            );
+            return;
+          }
+          const acked = ackedLocaleRef.current;
           setPendingLocale(null);
-          publishHint(previousHint);
+          if (acked === null) {
+            // This pick superseded the mount-time load and then failed, so
+            // nothing is known about what the worker holds. Run the load
+            // again rather than leave a stored preference unapplied until
+            // the next mount.
+            setResponseLanguageHint(undefined);
+            setLoadNonce((n) => n + 1);
+          } else {
+            // Fall back to what the worker last acknowledged, not to the
+            // optimistic value this pick replaced, so the chrome, the
+            // picker, the hint and storage all agree.
+            setResponseLanguageHint(ackedHintRef.current);
+            setLoaded(acked);
+          }
           console.error(
             "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
             { locale: next, error }
@@ -277,7 +311,7 @@ export function LocalePreferenceProvider({
         }
       });
     },
-    [enqueueWrite, publishHint]
+    [enqueueWrite, acknowledge]
   );
 
   const value = useMemo<LocalePreferenceContextValue>(
