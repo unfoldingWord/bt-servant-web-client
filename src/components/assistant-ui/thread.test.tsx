@@ -58,6 +58,7 @@ async function renderThread({
   withUserMenu = false,
   storedPreferences,
   deferPreferences = false,
+  preferencePutResponse,
 }: {
   historyEntries?: ChatHistoryEntry[];
   /** Leave the stream open for the test to push events into. */
@@ -73,12 +74,15 @@ async function renderThread({
    * `answerPreferences`; the mount-time load is then still in flight.
    */
   deferPreferences?: boolean;
+  /** Answers the seed/pick `PUT` (see fake-bff); default 200. */
+  preferencePutResponse?: () => Response | Promise<Response>;
 } = {}) {
   stubNavigatorLanguage(locale);
   let answerPreferences!: (body: UserPreferences) => void;
   const harness = installFakeBff({
     historyEntries,
     storedPreferences,
+    preferencePutResponse,
     onStream: liveStream
       ? undefined
       : () => sseResponse([completeEvent([ENGINE_REPLY])]),
@@ -149,6 +153,9 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       ).toBeInTheDocument();
       expect(document.documentElement.lang).toBe(locale);
 
+      // The product ships exactly three chips; `chipsFor` grows with the
+      // dictionary, so the count is pinned here, not derived.
+      expect(CHIPS).toHaveLength(3);
       // Every fixture chip is on screen, and nothing else with the button role
       // but the composer's send button: jsdom has no MediaRecorder, so the
       // voice button is not rendered. Counting all buttons (not the chips we
@@ -350,6 +357,26 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       expect(harness.streamBodies).toEqual([]);
     });
 
+    // A first-time user can send before the seed PUT lands; the request is
+    // self-describing, so the reply language does not depend on it.
+    it("sends the browser-derived response_language_hint while the first-visit seed PUT is still pending", async () => {
+      const harness = await renderThread({
+        locale,
+        preferencePutResponse: () => new Promise<Response>(() => {}),
+      });
+      const user = userEvent.setup();
+      // The empty GET was read and the seed PUT is out but unanswered.
+      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(1), WAIT);
+      expect(harness.streamBodies[0]).toMatchObject({
+        message: CHIPS[0].prompt,
+        response_language_hint: toResponseLanguage(locale),
+      });
+    });
+
     // Regression: the locale must never flip under an animating reply, even
     // when the mount-time load settles mid-stream: the loaded value is held
     // and applied once the reply has landed.
@@ -512,6 +539,28 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       ).toBeInTheDocument();
       expect(
         screen.queryByText("Spoken reply transcript.")
+      ).not.toBeInTheDocument();
+
+      // The icon-only play control has a dictionary-backed name. jsdom's
+      // play() rejects (vitest.setup.ts), so a click reaches the player's
+      // catch and logs; the control stays a play button.
+      const user = userEvent.setup();
+      await user.click(
+        screen.getByRole("button", { name: dict["audioPlayer.play"] })
+      );
+      await waitFor(
+        () =>
+          expect(consoleSpy.error).toHaveBeenCalledWith(
+            "Failed to play audio:",
+            expect.any(DOMException)
+          ),
+        WAIT
+      );
+      expect(
+        screen.getByRole("button", { name: dict["audioPlayer.play"] })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: dict["audioPlayer.pause"] })
       ).not.toBeInTheDocument();
     });
   });

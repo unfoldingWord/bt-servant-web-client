@@ -1,0 +1,2209 @@
+diff --git a/docs/i18n.md b/docs/i18n.md
+index 9532c88..8290811 100644
+--- a/docs/i18n.md
++++ b/docs/i18n.md
+@@ -11,10 +11,14 @@ this document covers only the chrome around the reply.
+   (`src/i18n/index.ts`); only the tests inside `src/i18n` reach into the
+   submodules.
+ - **One registry.** `LOCALES` in `src/i18n/locales.ts` maps each tag to its
+-  dictionary and its BCP 47 primary subtags
+-  (`{ en: { dictionary: en, primaries: ["en"] }, "pt-BR": { dictionary: ptBR,
+-primaries: ["pt"] } }`). `Locale`, `SUPPORTED_LOCALES`, `t()` and
+-  `normalizeLocale()` are all derived from it; `DEFAULT_LOCALE = "en"`.
++  dictionary, its native display name (what the language picker shows:
++  `English`, `Português (Brasil)`), the code the worker stores for it
++  (`responseLanguage`: `en`, `pt`) and its BCP 47 primary subtags
++  (`{ en: { dictionary: en, displayName: "English", responseLanguage: "en",
++primaries: ["en"] }, "pt-BR": { dictionary: ptBR, displayName: "Português
++(Brasil)", responseLanguage: "pt", primaries: ["pt"] } }`). `Locale`,
++  `SUPPORTED_LOCALES`, `t()`, `normalizeLocale()` and `toResponseLanguage()`
++  are all derived from it; `DEFAULT_LOCALE = "en"`.
+ - **Dictionaries, no library.** `src/i18n/en.ts` is the typed source of truth
+   (`as const`, exporting `MessageKey` and `Dictionary`). Every other locale
+   file is typed `satisfies Dictionary` so a missing or extra key fails `tsc`.
+@@ -38,9 +42,17 @@ primaries: ["pt"] } }`). `Locale`, `SUPPORTED_LOCALES`, `t()` and
+   exact match against `SUPPORTED_LOCALES`, then primary-subtag match against
+   the registry, then `DEFAULT_LOCALE`. So `pt` / `pt-BR` / `PT-br` / `pt_BR` /
+   `pt-PT` → `pt-BR`, `en` / `en-US` → `en`, anything else (including
+-  `undefined`) → `en`. Only `navigator.language` is consulted today;
+-  `navigator.languages` (the ordered list) and `Accept-Language` are not
+-  (a PR 3 concern, alongside the worker's stored language).
++  `undefined`) → `en`. Only `navigator.language` is consulted;
++  `navigator.languages` (the ordered list) and `Accept-Language` are not.
++- **`toResponseLanguage(locale)`** is the inverse for the worker: the
++  registry's explicit `responseLanguage`, an ISO 639-1 code (`pt-BR` → `pt`,
++  `en` → `en`). The worker validates `response_language` against
++  `/^[a-z]{2}$/` (`user-do.ts`, `ISO_639_1_PATTERN`), so the full tag must
++  never be sent; regional variants therefore collapse under the worker's
++  contract (`pt-BR` and a future `pt-PT` would both store `pt`). Widening
++  that contract is worker work and ours to do if a locale ever needs it.
++  `i18n.test.ts` checks that every `responseLanguage` is unique, matches
++  that pattern and round-trips through `normalizeLocale()`.
+ - **`getInitialLocale()`** is the locale known before any browser signal:
+   `NEXT_PUBLIC_DEFAULT_LOCALE` (build-time; lets staging pin `pt-BR`) or
+   `DEFAULT_LOCALE`. The root layout renders `<html lang>` with it, the
+@@ -67,30 +79,64 @@ status> } | null` and attaches `metadata.custom.errorKey`
+   appends, whose text content is empty. `thread.tsx` translates both at
+   render, so a locale change re-renders them and the streaming code
+   (`handleComplete`, `finalizeComplete`, `handledTerminal`) is untouched.
+-  Worker status text is rendered as-is until PR 3 switches to the worker's
+-  structured `key`.
++  Worker status `message` is rendered as-is: the worker localizes it from
++  the same stored preference (bt-servant-worker#407), so the client never
++  translates status text.
+ - **`global-error.tsx`** replaces the root layout (and with it the provider),
+   so it renders `getInitialLocale()` via the pure `t()` and declares that
+   locale on its own `<html>`.
+ 
+-Later work (#51 PR 3) only needs to call `setLocale(normalizeLocale(...))`
+-from the `complete` SSE event and from the preferences GET; no other wiring
+-is required.
++## The language preference
++
++One setting, coupled: the interface locale and the model's reply language are
++the same preference. The worker stores it as `response_language` (ISO 639-1,
++`pt`), the BFF proxies it at `GET`/`PUT /api/preferences`
++(`src/app/api/preferences/route.ts`), and the client maps in both directions
++with `normalizeLocale()` (`pt` → `pt-BR`) and `toResponseLanguage()`
++(`pt-BR` → `pt`). The user chooses; nothing else writes the preference (the
++worker's per-turn language detection is telemetry only).
++
++**One owner.** `LocalePreferenceProvider`
++(`src/components/providers/locale-preference-provider.tsx`, mounted once by
++`AssistantProvider`, i.e. in the authenticated area only) is the only code
++that talks to the route and the only caller of `setLocale` for it. It exposes
++`useLocalePreference()` → `{ locale, ready, choose(locale) }`; the JSDoc
++there is the spec. Two consequences are deliberate:
++
++- A slow mount-time load can never revert the user's pick: `choose`
++  supersedes any load still in flight (the pending `GET` is aborted and its
++  result ignored).
++- The chrome never flips under an animating reply: `AssistantProvider`
++  passes `hold={isLoading}`, so a value the load delivers mid-stream is
++  held and applied when the reply lands, and the picker in the user menu
++  (`src/components/user-menu.tsx`) is disabled while a reply is in flight
++  with the hint `userMenu.languageLockedWhileReplying`. Sending is never
++  blocked on the preference load (the worker replies in the persisted
++  language anyway).
++- The first-visit seed is the browser's locale (`getClientLocale()`, read
++  at PUT time), never React state: during hydration the first render still
++  holds the server snapshot, and seeding that would pin `en` for a pt-BR
++  browser forever.
++
++Display names in the picker are not translation targets: each language is
++named in itself, and the names live in the registry, not in JSX, so the lint
++guard needs no allow-list entry for them.
+ 
+ ## Never translate
+ 
+ These two strings are **data, not copy**. Translating them breaks behavior.
+ 
+-1. **`"[Voice message]"`** — written by `use-chat-runtime.ts` as the user
+-   message text when a voice turn has no transcript, persisted in chat
++1. **`"[Voice message]"`** (`VOICE_MESSAGE_SENTINEL` in
++   `src/lib/voice-message.ts`) — written by `use-chat-runtime.ts` as the
++   user message text when a voice turn has no transcript, persisted in chat
+    history, and compared by equality in `thread.tsx` to decide whether to
+    render the voice label. The _label_ shown to the user is the dictionary
+    key `message.voiceMessage`; the sentinel itself stays English forever.
+-2. **The SSE status keyword heuristic** in `use-chat-runtime.ts`
+-   (`statusLower.includes("audio" | "tts" | "speech")`) that extends the
+-   inactivity timeout during TTS. It matches worker status text; the worker
+-   will replace it with a structured `key` (bt-servant-worker#405) and PR 3
+-   switches to that.
++   One test anchors the literal (`use-chat-runtime.test.ts`).
++2. **The SSE status TTS test** in `use-chat-runtime.ts`: the
++   `TTS_STATUS_KEYS` lookup and, for worker versions that send no `key`, the
++   English keyword fallback (`includes("audio" | "tts" | "speech")`). Both
++   extend the inactivity timeout during TTS; both are protocol, not copy.
+ 
+ ## Deliberately left in English
+ 
+@@ -106,9 +152,12 @@ These two strings are **data, not copy**. Translating them breaks behavior.
+ 1. Create `src/i18n/<tag>.ts` exporting a dictionary typed
+    `satisfies Dictionary` (copy `pt-BR.ts` as a template). `tsc` fails until
+    every key is present.
+-2. Add one entry to `LOCALES` in `src/i18n/locales.ts` with the dictionary
+-   and the primary language subtags that should resolve to it. `Locale`,
+-   `SUPPORTED_LOCALES`, `t()` and `normalizeLocale()` pick it up from there.
++2. Add one entry to `LOCALES` in `src/i18n/locales.ts` with the dictionary,
++   the native `displayName`, the ISO 639-1 `responseLanguage` the worker
++   stores for it (unique per locale) and the primary language subtags that
++   should resolve to it. `Locale`, `SUPPORTED_LOCALES`, `t()`,
++   `normalizeLocale()`, `toResponseLanguage()` and the picker pick it up
++   from there.
+ 
+ Then run `npm test`: the parity, empty-value and untranslated-value checks
+ run for every registered locale automatically. Add rows for the new tag to
+@@ -173,5 +222,8 @@ as copy only when their static text contains letters; `${m}:${s}` is a value.
+ - [ ] Punctuation and ellipses follow the language's conventions.
+ - [ ] Strings fit their controls (chips, menu items, aria labels) without
+       truncation on a narrow viewport.
+-- [ ] `"[Voice message]"` and the status keyword heuristic are untouched.
++- [ ] `"[Voice message]"`, the `TTS_STATUS_KEYS` lookup and its keyword
++      fallback are untouched.
++- [ ] The new locale has a native `displayName` in the registry and appears
++      in the user menu's picker.
+ - [ ] Reviewed in situ on staging by a native speaker, not only in the diff.
+diff --git a/package-lock.json b/package-lock.json
+index 58e1410..bbc01d8 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "bt-servant-web-client",
+-  "version": "1.9.0",
++  "version": "1.10.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "bt-servant-web-client",
+-      "version": "1.9.0",
++      "version": "1.10.0",
+       "dependencies": {
+         "@assistant-ui/react": "^0.11.53",
+         "@assistant-ui/react-markdown": "^0.11.9",
+diff --git a/package.json b/package.json
+index 3b841cd..641797f 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "bt-servant-web-client",
+-  "version": "1.9.0",
++  "version": "1.10.0",
+   "private": true,
+   "engines": {
+     "node": ">=22.22.2"
+diff --git a/src/app/api/preferences/route.test.ts b/src/app/api/preferences/route.test.ts
+index 7664186..230860e 100644
+--- a/src/app/api/preferences/route.test.ts
++++ b/src/app/api/preferences/route.test.ts
+@@ -36,16 +36,24 @@ beforeEach(() => {
+ });
+ 
+ describe("GET /api/preferences", () => {
+-  it("returns the engine payload for the session user and resolved org", async () => {
+-    getPrefsMock.mockResolvedValueOnce({ response_language: "pt" });
+-
+-    const res = await GET();
+-
+-    expect(res.status).toBe(200);
+-    expect(await res.json()).toEqual({ response_language: "pt" });
+-    expect(resolveOrgMock).toHaveBeenCalledWith(SESSION.user.email);
+-    expect(getPrefsMock).toHaveBeenCalledWith(SESSION.user.id, ORG);
+-  });
++  it.each([
++    [{ response_language: "pt" }],
++    // A user with nothing stored yet: the engine client maps the worker's
++    // 404 to `{}` and the client seeds from the browser.
++    [{}],
++  ])(
++    "returns the engine payload %j for the session user and resolved org",
++    async (payload) => {
++      getPrefsMock.mockResolvedValueOnce(payload);
++
++      const res = await GET();
++
++      expect(res.status).toBe(200);
++      expect(await res.json()).toEqual(payload);
++      expect(resolveOrgMock).toHaveBeenCalledWith(SESSION.user.email);
++      expect(getPrefsMock).toHaveBeenCalledWith(SESSION.user.id, ORG);
++    }
++  );
+ 
+   it("returns 401 without a session", async () => {
+     authMock.mockResolvedValueOnce(null);
+@@ -68,7 +76,8 @@ describe("PUT /api/preferences", () => {
+     expect(updatePrefsMock).not.toHaveBeenCalled();
+   });
+ 
+-  it("forwards a valid response_language to the engine client and returns its payload", async () => {
++  // What the client sends: an ISO 639-1 code (`toResponseLanguage`).
++  it("forwards response_language to the engine client and returns its payload", async () => {
+     updatePrefsMock.mockResolvedValueOnce({ response_language: "pt" });
+ 
+     const res = await PUT(putRequest({ response_language: "pt" }));
+@@ -82,6 +91,15 @@ describe("PUT /api/preferences", () => {
+     );
+   });
+ 
++  it("returns 500 (not the raw error) when the engine client rejects", async () => {
++    updatePrefsMock.mockRejectedValueOnce(new Error("Engine API error: 400"));
++
++    const res = await PUT(putRequest({ response_language: "pt" }));
++
++    expect(res.status).toBe(500);
++    expect(await res.json()).toEqual({ error: "Internal server error" });
++  });
++
+   it("returns 401 without a session", async () => {
+     authMock.mockResolvedValueOnce(null);
+ 
+diff --git a/src/components/assistant-ui/thread.test.tsx b/src/components/assistant-ui/thread.test.tsx
+index 48495c2..32bb462 100644
+--- a/src/components/assistant-ui/thread.test.tsx
++++ b/src/components/assistant-ui/thread.test.tsx
+@@ -1,12 +1,26 @@
+ import { afterEach, describe, expect, it, vi } from "vitest";
+-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
++import {
++  act,
++  fireEvent,
++  render,
++  screen,
++  waitFor,
++} from "@testing-library/react";
+ import userEvent from "@testing-library/user-event";
+ import { AssistantProvider } from "@/components/providers/assistant-provider";
++import { UserMenu } from "@/components/user-menu";
+ import { LocaleProvider } from "@/i18n";
+-import type { ChatHistoryEntry } from "@/types/engine";
++import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
++import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
+ import { consoleSpy } from "@/test/console";
+-import { chipsFor, LOCALES, SUPPORTED_LOCALES, type Locale } from "@/test/copy";
+-import { installFakeBff } from "@/test/fake-bff";
++import {
++  chipsFor,
++  LOCALES,
++  SUPPORTED_LOCALES,
++  toResponseLanguage,
++  type Locale,
++} from "@/test/copy";
++import { installFakeBff, PREFERENCES_ROUTE } from "@/test/fake-bff";
+ import { completeEvent } from "@/test/fixtures";
+ import { stubNavigatorLanguage } from "@/test/navigator";
+ import { sseResponse } from "@/test/sse";
+@@ -28,11 +42,9 @@ import { Thread } from "./thread";
+ // way the app seeds it, from navigator.language on mount. Every suite runs
+ // once per supported locale, reading its copy from that locale's dictionary.
+ 
+-// The literal stored for a voice turn with no transcript. Kept local on
+-// purpose: the test's point is that this literal never reaches the screen.
+-const VOICE_SENTINEL = "[Voice message]";
+ const ENGINE_REPLY = "Reply from the engine.";
+ const AUDIO_ROUTE = "/api/audio";
++const WAIT = { interval: 5 };
+ 
+ // Unmount (and close any stream still open) inside act, under the clock the
+ // test left installed, before the setup file restores the console spies.
+@@ -43,20 +55,45 @@ async function renderThread({
+   historyEntries = [],
+   liveStream = false,
+   locale = "en",
++  withUserMenu = false,
++  storedPreferences,
++  deferPreferences = false,
+ }: {
+   historyEntries?: ChatHistoryEntry[];
+   /** Leave the stream open for the test to push events into. */
+   liveStream?: boolean;
+   /** Seeded through navigator.language, as in the browser. */
+   locale?: Locale;
++  /** Also render the header's UserMenu (the language picker) next to the thread. */
++  withUserMenu?: boolean;
++  /** What the worker has stored for this user; default nothing. */
++  storedPreferences?: UserPreferences;
++  /**
++   * Leave `GET /api/preferences` unanswered until the test calls the returned
++   * `answerPreferences`; the mount-time load is then still in flight.
++   */
++  deferPreferences?: boolean;
+ } = {}) {
+   stubNavigatorLanguage(locale);
++  let answerPreferences!: (body: UserPreferences) => void;
+   const harness = installFakeBff({
+     historyEntries,
++    storedPreferences,
+     onStream: liveStream
+       ? undefined
+       : () => sseResponse([completeEvent([ENGINE_REPLY])]),
+     extraRoutes: {
++      ...(deferPreferences && {
++        [PREFERENCES_ROUTE]: () =>
++          new Promise<Response>((resolve) => {
++            answerPreferences = (body) =>
++              resolve(
++                new Response(JSON.stringify(body), {
++                  headers: { "Content-Type": "application/json" },
++                })
++              );
++          }),
++      }),
+       // AudioPlayer fetches the proxied clip and calls res.blob(); audio
+       // bytes exercise its happy path (URL.createObjectURL is stubbed in
+       // setup). Bytes, not a Blob body: jsdom's Blob has no stream() and
+@@ -70,6 +107,7 @@ async function renderThread({
+   const { unmount } = render(
+     <LocaleProvider>
+       <AssistantProvider>
++        {withUserMenu && <UserMenu userInitial="S" />}
+         <Thread />
+       </AssistantProvider>
+     </LocaleProvider>
+@@ -78,14 +116,17 @@ async function renderThread({
+   // The first paint is always the empty state (messages start as []). Wait
+   // for history to be applied so the branch under test is the one the user
+   // would actually see; for a non-empty thread that is the greeting leaving.
++  // The provider also reads the stored preference on mount; wait for that
++  // too so a stored locale has been applied before any assertion.
+   await harness.historyLoaded();
++  if (!deferPreferences) await harness.preferencesLoaded();
+   if (historyEntries.length > 0) {
+     const greeting = LOCALES[locale].dictionary["thread.welcome"];
+     await waitFor(() =>
+       expect(screen.queryByText(greeting)).not.toBeInTheDocument()
+     );
+   }
+-  return harness;
++  return { ...harness, answerPreferences };
+ }
+ 
+ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
+@@ -248,6 +289,162 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
+     });
+   });
+ 
++  describe("language preference", () => {
++    const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
++    const otherDict = LOCALES[other].dictionary;
++
++    it(`a stored preference for ${other} wins over the browser's ${locale} on load`, async () => {
++      const harness = await renderThread({
++        locale,
++        storedPreferences: {
++          response_language: toResponseLanguage(other),
++        },
++      });
++
++      await waitFor(
++        () =>
++          expect(
++            screen.getByText(otherDict["thread.welcome"])
++          ).toBeInTheDocument(),
++        WAIT
++      );
++      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
++      expect(document.documentElement.lang).toBe(other);
++      expect(harness.preferencePuts).toEqual([]);
++    });
++
++    it(`picking ${LOCALES[other].displayName} in the user menu PUTs the preference and re-renders the whole thread in ${other} without a reload`, async () => {
++      const harness = await renderThread({ locale, withUserMenu: true });
++      const user = userEvent.setup();
++
++      await user.click(
++        screen.getByRole("button", { name: dict["userMenu.trigger"] })
++      );
++      await user.click(
++        screen.getByRole("menuitemradio", {
++          name: LOCALES[other].displayName,
++        })
++      );
++
++      await waitFor(
++        () =>
++          expect(
++            screen.getByText(otherDict["thread.welcome"])
++          ).toBeInTheDocument(),
++        WAIT
++      );
++      expect(harness.preferencePuts.at(-1)).toEqual({
++        response_language: toResponseLanguage(other),
++      });
++      expect(
++        screen.getByPlaceholderText(otherDict["composer.placeholder"])
++      ).toBeInTheDocument();
++      for (const chip of chipsFor(otherDict)) {
++        expect(
++          screen.getByRole("button", { name: chip.label })
++        ).toBeInTheDocument();
++      }
++      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
++      expect(document.documentElement.lang).toBe(other);
++      // Picking a language is not a message.
++      expect(harness.streamBodies).toEqual([]);
++    });
++
++    // Regression: the locale must never flip under an animating reply, even
++    // when the mount-time load settles mid-stream: the loaded value is held
++    // and applied once the reply has landed.
++    it(`a stored ${other} that loads while a reply streams is applied only after the reply lands`, async () => {
++      const harness = await renderThread({
++        locale,
++        liveStream: true,
++        deferPreferences: true,
++      });
++      const user = userEvent.setup();
++
++      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
++      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
++
++      harness.answerPreferences({
++        response_language: toResponseLanguage(other),
++      });
++      await harness.preferencesLoaded();
++      await act(async () => {});
++
++      // Mid-stream: still this locale.
++      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
++      expect(document.documentElement.lang).toBe(locale);
++
++      const stream = harness.streams[0];
++      stream.push(completeEvent([ENGINE_REPLY]));
++      stream.close();
++      await screen.findByText(ENGINE_REPLY);
++
++      // The reply has landed: the held preference applies.
++      await waitFor(
++        () =>
++          expect(
++            screen.getByPlaceholderText(otherDict["composer.placeholder"])
++          ).toBeInTheDocument(),
++        WAIT
++      );
++      expect(document.documentElement.lang).toBe(other);
++      expect(harness.preferencePuts).toEqual([]);
++      expect(consoleSpy.error).not.toHaveBeenCalled();
++    });
++
++    // Regression: the locale must never flip under an animating reply. The
++    // picker locks itself while a reply is in flight and unlocks when the
++    // reply has landed.
++    it("locks the language picker with a hint while a reply streams and unlocks it once the reply lands", async () => {
++      const harness = await renderThread({
++        locale,
++        liveStream: true,
++        withUserMenu: true,
++        // A returning user: the load applies the stored value and seeds
++        // nothing, so any PUT below would be the picker's.
++        storedPreferences: { response_language: toResponseLanguage(locale) },
++      });
++      const user = userEvent.setup();
++
++      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
++      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
++
++      await user.click(
++        screen.getByRole("button", { name: dict["userMenu.trigger"] })
++      );
++      await screen.findByRole("menu");
++      expect(
++        screen.getByText(dict["userMenu.languageLockedWhileReplying"])
++      ).toBeInTheDocument();
++      for (const item of screen.getAllByRole("menuitemradio")) {
++        expect(item).toHaveAttribute("aria-disabled", "true");
++      }
++      // A click on a locked item changes nothing.
++      await user.click(
++        screen.getByRole("menuitemradio", {
++          name: LOCALES[other].displayName,
++        })
++      );
++      expect(harness.preferencePuts).toEqual([]);
++      expect(document.documentElement.lang).toBe(locale);
++
++      // The reply lands and finalizes; the same open menu unlocks.
++      const stream = harness.streams[0];
++      stream.push(completeEvent([ENGINE_REPLY]));
++      stream.close();
++      await waitFor(
++        () =>
++          expect(
++            screen.queryByText(dict["userMenu.languageLockedWhileReplying"])
++          ).not.toBeInTheDocument(),
++        WAIT
++      );
++      for (const item of screen.getAllByRole("menuitemradio")) {
++        expect(item).not.toHaveAttribute("aria-disabled");
++      }
++    });
++  });
++
+   describe("with messages", () => {
+     const textHistory: ChatHistoryEntry[] = [
+       {
+@@ -279,7 +476,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
+       await renderThread({
+         historyEntries: [
+           {
+-            user_message: VOICE_SENTINEL,
++            user_message: VOICE_MESSAGE_SENTINEL,
+             assistant_response: "Here is what I heard.",
+             created_at: "2026-09-01T12:00:00Z",
+           },
+@@ -287,7 +484,9 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
+         locale,
+       });
+ 
+-      expect(screen.queryByText(VOICE_SENTINEL)).not.toBeInTheDocument();
++      expect(
++        screen.queryByText(VOICE_MESSAGE_SENTINEL)
++      ).not.toBeInTheDocument();
+       const label = screen.getByText(dict["message.voiceMessage"]);
+       // The label is decorated with the mic icon (lucide renders an <svg>).
+       expect(label.querySelector("svg")).not.toBeNull();
+@@ -297,7 +496,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
+       const harness = await renderThread({
+         historyEntries: [
+           {
+-            user_message: VOICE_SENTINEL,
++            user_message: VOICE_MESSAGE_SENTINEL,
+             assistant_response: "Spoken reply transcript.",
+             created_at: "2026-09-01T12:00:00Z",
+             voice_audio_url: "https://audio.example/reply.mp3",
+diff --git a/src/components/assistant-ui/thread.tsx b/src/components/assistant-ui/thread.tsx
+index 1efb48e..0d19ea3 100644
+--- a/src/components/assistant-ui/thread.tsx
++++ b/src/components/assistant-ui/thread.tsx
+@@ -9,6 +9,7 @@ import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+ import type { ErrorKey } from "@/hooks/use-chat-runtime";
+ import { useT, type MessageKey } from "@/i18n";
+ import { APP_VERSION } from "@/lib/version";
++import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
+ import { Button } from "@/components/ui/button";
+ import {
+   ActionBarPrimitive,
+@@ -399,11 +400,11 @@ const ChatMessage: FC = () => {
+ 
+ const UserMessage: FC = () => {
+   const t = useT();
+-  // "[Voice message]" is a persisted data sentinel written by
+-  // use-chat-runtime.ts, not copy — it is never translated.
+   const isVoiceMessage = useAssistantState(({ message }) => {
+     const firstPart = message.content[0];
+-    return firstPart?.type === "text" && firstPart.text === "[Voice message]";
++    return (
++      firstPart?.type === "text" && firstPart.text === VOICE_MESSAGE_SENTINEL
++    );
+   });
+ 
+   return (
+diff --git a/src/components/providers/assistant-provider.tsx b/src/components/providers/assistant-provider.tsx
+index b6908bf..83c9c59 100644
+--- a/src/components/providers/assistant-provider.tsx
++++ b/src/components/providers/assistant-provider.tsx
+@@ -3,6 +3,7 @@
+ import { AssistantRuntimeProvider } from "@assistant-ui/react";
+ import { useChatRuntime, type RuntimeStatus } from "@/hooks/use-chat-runtime";
+ import { createContext, useContext, ReactNode } from "react";
++import { LocalePreferenceProvider } from "./locale-preference-provider";
+ 
+ interface ChatContextValue {
+   sendMessage: (
+@@ -51,9 +52,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
+         isCompleting,
+       }}
+     >
+-      <AssistantRuntimeProvider runtime={runtime}>
+-        {children}
+-      </AssistantRuntimeProvider>
++      {/* The stored language preference lives with the authenticated area
++          (its BFF route needs a session). While a reply is in flight the
++          provider holds a loaded preference and the picker locks itself. */}
++      <LocalePreferenceProvider hold={isLoading}>
++        <AssistantRuntimeProvider runtime={runtime}>
++          {children}
++        </AssistantRuntimeProvider>
++      </LocalePreferenceProvider>
+     </ChatContext.Provider>
+   );
+ }
+diff --git a/src/components/providers/locale-preference-provider.test.tsx b/src/components/providers/locale-preference-provider.test.tsx
+new file mode 100644
+index 0000000..0a2f6f0
+--- /dev/null
++++ b/src/components/providers/locale-preference-provider.test.tsx
+@@ -0,0 +1,446 @@
++import { describe, expect, it, vi } from "vitest";
++import { act, render, waitFor, within } from "@testing-library/react";
++import { hydrateRoot } from "react-dom/client";
++import { renderToString } from "react-dom/server";
++import { LocaleProvider, useLocale } from "@/i18n";
++import { consoleSpy } from "@/test/console";
++import {
++  SUPPORTED_LOCALES,
++  toResponseLanguage,
++  type Locale,
++} from "@/test/copy";
++import {
++  installFakeBff,
++  PREFERENCES_ROUTE,
++  type FakeBffOptions,
++} from "@/test/fake-bff";
++import { stubNavigatorLanguage } from "@/test/navigator";
++import {
++  LocalePreferenceProvider,
++  saveLocalePreference,
++  useLocalePreference,
++} from "./locale-preference-provider";
++
++// The provider owns the worker's stored `response_language`: a stored value
++// wins over the browser, an unset value is seeded from the browser once,
++// failures keep the browser locale, a loaded value is held while `hold` is
++// true (a reply is in flight), and the user's `choose` supersedes any load
++// still in flight. It is rendered under the real LocaleProvider; only fetch
++// and navigator.language are stubbed.
++
++const WAIT = { interval: 5 };
++const JSON_HEADERS = { "Content-Type": "application/json" };
++const jsonResponse = (body: unknown) =>
++  new Response(JSON.stringify(body), { headers: JSON_HEADERS });
++const failed = () => new Response("boom", { status: 500 });
++
++type Preference = ReturnType<typeof useLocalePreference>;
++
++/** Reports the hook's latest value on every render (what renderHook does internally). */
++function Probe({ onValue }: { onValue: (value: Preference) => void }) {
++  onValue(useLocalePreference());
++  return null;
++}
++
++/**
++ * Renders the provider under the real LocaleProvider with a probe that
++ * exposes `useLocalePreference()` as `result.current`; `rerender` changes
++ * `hold`. (renderHook's `initialProps` reach the hook, not the wrapper, so
++ * a wrapper-level prop needs `render`.)
++ */
++function mount({
++  navigator = "en-US",
++  hold = false,
++  strict = false,
++  harness: reused,
++  ...bff
++}: {
++  navigator?: string;
++  hold?: boolean;
++  /**
++   * RTL's own StrictMode option. A `<StrictMode>` inside the tree does not
++   * double-run the provider's effects here (measured: effects=1); this does.
++   */
++  strict?: boolean;
++  /** Reuse a fake BFF from an earlier mount instead of installing a new one. */
++  harness?: ReturnType<typeof installFakeBff>;
++} & FakeBffOptions = {}) {
++  const harness = reused ?? installFakeBff(bff);
++  if (!reused) stubNavigatorLanguage(navigator);
++  const result = { current: null as unknown as Preference };
++  const tree = (h: boolean) => (
++    <LocaleProvider>
++      <LocalePreferenceProvider hold={h}>
++        <Probe onValue={(v) => (result.current = v)} />
++      </LocalePreferenceProvider>
++    </LocaleProvider>
++  );
++  const view = render(tree(hold), { reactStrictMode: strict });
++  return {
++    harness,
++    result,
++    unmount: view.unmount,
++    rerender: (next: { hold: boolean }) => view.rerender(tree(next.hold)),
++  };
++}
++
++/** The `times`-th GET has been answered and the promise chain after it has run. */
++async function preferencesRead(
++  harness: ReturnType<typeof installFakeBff>,
++  times = 1
++) {
++  await harness.preferencesLoaded(times);
++  await act(async () => {});
++}
++
++/** A GET that answers only when the test says so; PUTs answer at once. */
++function deferredGet() {
++  let answer!: (r: Response) => void;
++  const route: FakeBffOptions["extraRoutes"] = {
++    [PREFERENCES_ROUTE]: (_url, init) =>
++      init?.method === "PUT"
++        ? jsonResponse({})
++        : new Promise<Response>((r) => (answer = r)),
++  };
++  return {
++    route,
++    answer: async (body: unknown) => {
++      answer(jsonResponse(body));
++      await act(async () => {});
++      await act(async () => {});
++    },
++  };
++}
++
++const putCalls = (harness: ReturnType<typeof installFakeBff>) =>
++  harness.fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
++
++describe("LocalePreferenceProvider — stored preference", () => {
++  it.each<[string, string, Locale]>([
++    ["pt", "en-US", "pt-BR"],
++    ["pt-BR", "en-US", "pt-BR"],
++    ["en", "pt-BR", "en"],
++    // Unsupported codes fall back to the default locale for the chrome, not
++    // to the browser: the stored value is an explicit choice.
++    ["xx", "pt-BR", "en"],
++  ])(
++    "stored %j with browser %s → %s, no PUT, ready, <html lang> follows",
++    async (stored, navigator, expected) => {
++      const { harness, result } = mount({
++        navigator,
++        storedPreferences: { response_language: stored },
++      });
++
++      await waitFor(() => expect(result.current.locale).toBe(expected), WAIT);
++      await preferencesRead(harness);
++
++      expect(result.current.ready).toBe(true);
++      expect(document.documentElement.lang).toBe(expected);
++      expect(harness.preferencePuts).toEqual([]);
++      expect(consoleSpy.error).not.toHaveBeenCalled();
++    }
++  );
++
++  // Regression: the chrome must never flip under an animating reply. A value
++  // the load delivers while `hold` is true waits for `hold` to clear.
++  it("holds a value loaded while `hold` is true and applies it once `hold` clears", async () => {
++    const { harness, result, rerender } = mount({
++      navigator: "en-US",
++      hold: true,
++      storedPreferences: { response_language: "pt" },
++    });
++
++    await preferencesRead(harness);
++    expect(result.current.ready).toBe(true);
++    expect(result.current.locale).toBe("en");
++    expect(document.documentElement.lang).toBe("en");
++
++    rerender({ hold: false });
++    await act(async () => {});
++
++    expect(result.current.locale).toBe("pt-BR");
++    expect(document.documentElement.lang).toBe("pt-BR");
++    expect(consoleSpy.error).not.toHaveBeenCalled();
++  });
++});
++
++describe("LocalePreferenceProvider — first visit seed", () => {
++  it.each<[FakeBffOptions["storedPreferences"], string, Locale]>([
++    [{}, "pt-BR", "pt-BR"],
++    [{}, "en-US", "en"],
++    [{ response_language: "" }, "pt-BR", "pt-BR"],
++  ])(
++    "stored %j with browser %s keeps %s and PUTs its code exactly once",
++    async (storedPreferences, navigator, expected) => {
++      const { harness, result } = mount({ navigator, storedPreferences });
++
++      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
++      await preferencesRead(harness);
++
++      expect(harness.preferencePuts).toEqual([
++        { response_language: toResponseLanguage(expected) },
++      ]);
++      expect(result.current.locale).toBe(expected);
++      expect(result.current.ready).toBe(true);
++      expect(consoleSpy.error).not.toHaveBeenCalled();
++    }
++  );
++
++  it("issues exactly one PUT under StrictMode's double effect run (no PUT storm)", async () => {
++    const { harness } = mount({ navigator: "pt-BR", strict: true });
++
++    await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
++    await preferencesRead(harness);
++    await act(async () => {});
++
++    expect(harness.preferencePuts).toEqual([
++      { response_language: toResponseLanguage("pt-BR") },
++    ]);
++    expect(consoleSpy.error).not.toHaveBeenCalled();
++  });
++
++  it("does not seed once a value is stored: a second mount (other browser language) reads the write, applies it and PUTs nothing", async () => {
++    const first = mount({ navigator: "pt-BR" });
++    await waitFor(
++      () => expect(first.harness.preferencePuts).toHaveLength(1),
++      WAIT
++    );
++    await preferencesRead(first.harness);
++    first.unmount();
++
++    // Same fake BFF (the PUT merged into its stored preferences), new mount
++    // from an English browser: applying the stored `pt` is a visible change.
++    stubNavigatorLanguage("en-US");
++    const { result, unmount } = mount({ harness: first.harness });
++    expect(result.current.locale).toBe("en");
++    await preferencesRead(first.harness, 2);
++
++    expect(first.harness.preferencePuts).toHaveLength(1);
++    expect(result.current.locale).toBe("pt-BR");
++    expect(document.documentElement.lang).toBe("pt-BR");
++    unmount();
++  });
++
++  it("is not ready until the GET settles, and seeds nothing after an unmount", async () => {
++    const { route, answer } = deferredGet();
++    const { harness, result, unmount } = mount({
++      navigator: "en-US",
++      extraRoutes: route,
++    });
++    await waitFor(
++      () => expect(harness.fetchMock).toHaveBeenCalledTimes(1),
++      WAIT
++    );
++    expect(result.current.ready).toBe(false);
++
++    unmount();
++    await answer({});
++
++    // Only the GET went out: an aborted mount never writes or logs.
++    expect(harness.fetchMock).toHaveBeenCalledTimes(1);
++    expect(consoleSpy.error).not.toHaveBeenCalled();
++  });
++
++  // Hydration: the first client render is the server snapshot (`en`), so a
++  // fast empty GET must seed from the browser, not from React state.
++  it("seeds the browser's locale, not the server snapshot, when the empty GET lands during hydration", async () => {
++    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", undefined);
++    stubNavigatorLanguage("pt-BR");
++    const harness = installFakeBff();
++
++    function Probe() {
++      const { locale } = useLocale();
++      return <output data-testid="locale">{locale}</output>;
++    }
++    const ui = (
++      <LocaleProvider>
++        <LocalePreferenceProvider>
++          <Probe />
++        </LocalePreferenceProvider>
++      </LocaleProvider>
++    );
++
++    const container = document.body.appendChild(document.createElement("div"));
++    container.innerHTML = renderToString(ui);
++    expect(within(container).getByTestId("locale")).toHaveTextContent("en");
++
++    const recoverable: unknown[] = [];
++    let root: ReturnType<typeof hydrateRoot> | undefined;
++    try {
++      await act(async () => {
++        root = hydrateRoot(container, ui, {
++          onRecoverableError: (e) => recoverable.push(e),
++        });
++      });
++      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
++      await preferencesRead(harness);
++
++      expect(recoverable).toEqual([]);
++      expect(harness.preferencePuts).toEqual([
++        { response_language: toResponseLanguage("pt-BR") },
++      ]);
++      expect(within(container).getByTestId("locale")).toHaveTextContent(
++        "pt-BR"
++      );
++      expect(document.documentElement.lang).toBe("pt-BR");
++      expect(consoleSpy.error).not.toHaveBeenCalled();
++    } finally {
++      await act(async () => root?.unmount());
++      container.remove();
++    }
++  });
++});
++
++describe("LocalePreferenceProvider — failures keep the browser locale", () => {
++  it("GET returning 500 logs one console.error, applies nothing, PUTs nothing, and is ready", async () => {
++    const { harness, result } = mount({
++      navigator: "pt-BR",
++      extraRoutes: { [PREFERENCES_ROUTE]: failed },
++    });
++
++    await waitFor(
++      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
++      WAIT
++    );
++    expect(consoleSpy.error.mock.calls[0][0]).toMatch(
++      /LocalePreferenceProvider/
++    );
++    expect(result.current.locale).toBe("pt-BR");
++    expect(result.current.ready).toBe(true);
++    expect(harness.preferencePuts).toEqual([]);
++  });
++
++  it("GET rejecting (network) logs one console.error and applies nothing", async () => {
++    const { result } = mount({
++      navigator: "en-US",
++      extraRoutes: {
++        [PREFERENCES_ROUTE]: () => {
++          throw new TypeError("Failed to fetch");
++        },
++      },
++    });
++
++    await waitFor(
++      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
++      WAIT
++    );
++    expect(result.current.locale).toBe("en");
++    expect(result.current.ready).toBe(true);
++  });
++
++  it("a failed seed PUT was attempted once, logs one console.error and leaves the locale as the browser's", async () => {
++    const { harness, result } = mount({
++      navigator: "pt-BR",
++      preferencePutResponse: failed,
++    });
++
++    await waitFor(
++      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
++      WAIT
++    );
++    expect(harness.preferencePuts).toEqual([
++      { response_language: toResponseLanguage("pt-BR") },
++    ]);
++    expect(result.current.locale).toBe("pt-BR");
++    expect(result.current.ready).toBe(true);
++  });
++});
++
++describe("LocalePreferenceProvider — choose()", () => {
++  it("PUTs the code, then applies the locale and <html lang>", async () => {
++    const { harness, result } = mount({
++      navigator: "en-US",
++      storedPreferences: { response_language: "en" },
++    });
++    await preferencesRead(harness);
++
++    await act(() => result.current.choose("pt-BR"));
++
++    expect(harness.preferencePuts).toEqual([
++      { response_language: toResponseLanguage("pt-BR") },
++    ]);
++    expect(result.current.locale).toBe("pt-BR");
++    expect(document.documentElement.lang).toBe("pt-BR");
++    expect(consoleSpy.error).not.toHaveBeenCalled();
++  });
++
++  // Regression: a slow mount-time GET must never resolve after the user's
++  // pick and revert it (a stored value) or overwrite it (the first-visit
++  // seed). `choose` supersedes the load.
++  it.each<[string, unknown]>([
++    ["a stored value", { response_language: "en" }],
++    ["nothing stored (no seed PUT follows)", {}],
++  ])(
++    "wins over a load still in flight whose late GET delivers %s",
++    async (_label, lateBody) => {
++      const { route, answer } = deferredGet();
++      const { harness, result } = mount({
++        navigator: "en-US",
++        extraRoutes: route,
++      });
++      await waitFor(
++        () => expect(harness.fetchMock).toHaveBeenCalledTimes(1),
++        WAIT
++      );
++      expect(result.current.ready).toBe(false);
++
++      await act(() => result.current.choose("pt-BR"));
++      expect(result.current.locale).toBe("pt-BR");
++      expect(result.current.ready).toBe(true);
++
++      await answer(lateBody);
++
++      expect(result.current.locale).toBe("pt-BR");
++      expect(document.documentElement.lang).toBe("pt-BR");
++      // The pick's PUT is the only write; the superseded load logged nothing.
++      const puts = putCalls(harness);
++      expect(puts).toHaveLength(1);
++      expect(JSON.parse(String(puts[0][1]?.body))).toEqual({
++        response_language: toResponseLanguage("pt-BR"),
++      });
++      expect(consoleSpy.error).not.toHaveBeenCalled();
++    }
++  );
++
++  it("resolves, logs one console.error and keeps the current locale when the PUT fails", async () => {
++    const { harness, result } = mount({
++      navigator: "en-US",
++      storedPreferences: { response_language: "en" },
++      preferencePutResponse: failed,
++    });
++    await preferencesRead(harness);
++
++    await act(() => result.current.choose("pt-BR"));
++
++    expect(harness.preferencePuts).toHaveLength(1);
++    expect(consoleSpy.error).toHaveBeenCalledTimes(1);
++    expect(consoleSpy.error.mock.calls[0][0]).toMatch(
++      /LocalePreferenceProvider/
++    );
++    expect(result.current.locale).toBe("en");
++    expect(document.documentElement.lang).toBe("en");
++  });
++});
++
++describe("saveLocalePreference()", () => {
++  it.each(SUPPORTED_LOCALES)(
++    "PUTs the ISO 639-1 code for %s and resolves",
++    async (locale) => {
++      const harness = installFakeBff();
++
++      await expect(saveLocalePreference(locale)).resolves.toBeUndefined();
++
++      expect(harness.preferencePuts).toEqual([
++        { response_language: toResponseLanguage(locale) },
++      ]);
++    }
++  );
++
++  it("rejects with the status when the BFF answers non-2xx", async () => {
++    installFakeBff({
++      preferencePutResponse: () => new Response("nope", { status: 502 }),
++    });
++
++    await expect(saveLocalePreference("pt-BR")).rejects.toThrow(/502/);
++  });
++});
+diff --git a/src/components/providers/locale-preference-provider.tsx b/src/components/providers/locale-preference-provider.tsx
+new file mode 100644
+index 0000000..11e096e
+--- /dev/null
++++ b/src/components/providers/locale-preference-provider.tsx
+@@ -0,0 +1,194 @@
++"use client";
++
++import {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++  type ReactNode,
++} from "react";
++import {
++  getClientLocale,
++  normalizeLocale,
++  toResponseLanguage,
++  useLocale,
++  type Locale,
++} from "@/i18n";
++import type { UserPreferences } from "@/types/engine";
++
++// One coupled setting: the interface locale and the model's reply language
++// are the same preference, stored by the worker as `response_language`
++// (ISO 639-1, e.g. `pt`) and proxied by the BFF at /api/preferences. This
++// provider is its only writer and the only caller of `setLocale` for it.
++
++const PREFERENCES_URL = "/api/preferences";
++
++interface LocalePreferenceContextValue {
++  locale: Locale;
++  /**
++   * True once the mount-time load has settled: the stored value delivered
++   * (applied, or held while `hold` is true), the browser locale seeded, the
++   * request failed, or `choose` superseded it. Nothing waits on it today
++   * (the worker replies in the persisted language regardless); it is exposed
++   * for views that want to know.
++   */
++  ready: boolean;
++  /**
++   * Persists `locale` as the user's `response_language`, then applies it to
++   * the chrome. A load still in flight is superseded, so its result can never
++   * revert the choice. Never rejects: a failed write is logged with context
++   * and the current locale stays.
++   */
++  choose: (locale: Locale) => Promise<void>;
++}
++
++const LocalePreferenceContext =
++  createContext<LocalePreferenceContextValue | null>(null);
++
++async function readPreferences(signal: AbortSignal): Promise<UserPreferences> {
++  const response = await fetch(PREFERENCES_URL, { signal });
++  if (!response.ok) {
++    throw new Error(`GET ${PREFERENCES_URL} failed (${response.status})`);
++  }
++  return response.json();
++}
++
++/**
++ * The one `PUT`: persists `locale` as the user's `response_language`
++ * (`toResponseLanguage`, ISO 639-1). Rejects on a non-2xx answer.
++ */
++export async function saveLocalePreference(
++  locale: Locale,
++  signal?: AbortSignal
++): Promise<void> {
++  const body: UserPreferences = {
++    response_language: toResponseLanguage(locale),
++  };
++  const response = await fetch(PREFERENCES_URL, {
++    method: "PUT",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify(body),
++    signal,
++  });
++  if (!response.ok) {
++    throw new Error(`PUT ${PREFERENCES_URL} failed (${response.status})`);
++  }
++}
++
++/**
++ * Owns the stored language preference for the authenticated area (the BFF
++ * route needs a session). Mounted once by `AssistantProvider`.
++ *
++ * On mount it runs one load: `GET` the preference; a stored value is applied
++ * with `setLocale(normalizeLocale(it))` (an explicit choice beats the
++ * browser; an unsupported code falls back to the default locale for the
++ * chrome only); nothing stored means a first visit on any device, and the
++ * browser's locale (`getClientLocale()`, read at PUT time: during hydration
++ * React state may still hold the server snapshot) is seeded with one `PUT`
++ * so it follows the user. Only the mount whose `GET` came back empty writes;
++ * an aborted mount (unmount, StrictMode's extra effect run) never does.
++ * Failures are logged with `console.error` and context and leave the browser
++ * locale in place.
++ *
++ * `hold` (a reply is in flight) defers applying a loaded value: the chrome
++ * never flips under an animating reply, and the value lands as soon as
++ * `hold` turns false. `choose` is the user's explicit pick from the language
++ * picker; see the context type. See docs/i18n.md, "The language preference".
++ */
++export function LocalePreferenceProvider({
++  hold = false,
++  children,
++}: {
++  hold?: boolean;
++  children: ReactNode;
++}) {
++  const { locale, setLocale } = useLocale();
++  const [ready, setReady] = useState(false);
++  // What the load delivered and has not applied yet (held, or one render
++  // away from applying).
++  const [loaded, setLoaded] = useState<Locale | null>(null);
++  // The mount-time load, so `choose` can cancel it.
++  const loadRef = useRef<AbortController | null>(null);
++
++  useEffect(() => {
++    const controller = new AbortController();
++    const { signal } = controller;
++    loadRef.current = controller;
++
++    (async () => {
++      try {
++        const stored = await readPreferences(signal);
++        if (signal.aborted) return;
++
++        if (stored.response_language) {
++          setLoaded(normalizeLocale(stored.response_language));
++        } else {
++          await saveLocalePreference(getClientLocale(), signal);
++        }
++      } catch (error) {
++        // Superseded by `choose` or unmounted mid-flight: nothing to report.
++        if (signal.aborted) return;
++        console.error(
++          "[LocalePreferenceProvider] could not sync response_language; keeping the browser locale",
++          { locale: getClientLocale(), error }
++        );
++      } finally {
++        if (!signal.aborted) setReady(true);
++      }
++    })();
++
++    return () => controller.abort();
++  }, []);
++
++  // Apply the loaded value once nothing is animating.
++  useEffect(() => {
++    if (loaded === null || hold) return;
++    setLoaded(null);
++    setLocale(loaded);
++  }, [loaded, hold, setLocale]);
++
++  const choose = useCallback(
++    async (next: Locale) => {
++      // The user's pick supersedes a load still in flight or held: however
++      // late its GET resolves, it must not revert what the user just chose.
++      loadRef.current?.abort();
++      loadRef.current = null;
++      setLoaded(null);
++      setReady(true);
++      try {
++        await saveLocalePreference(next);
++        setLocale(next);
++      } catch (error) {
++        console.error(
++          "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
++          { locale: next, error }
++        );
++      }
++    },
++    [setLocale]
++  );
++
++  const value = useMemo<LocalePreferenceContextValue>(
++    () => ({ locale, ready, choose }),
++    [locale, ready, choose]
++  );
++
++  return (
++    <LocalePreferenceContext.Provider value={value}>
++      {children}
++    </LocalePreferenceContext.Provider>
++  );
++}
++
++export function useLocalePreference(): LocalePreferenceContextValue {
++  const ctx = useContext(LocalePreferenceContext);
++  if (!ctx) {
++    throw new Error(
++      "useLocalePreference must be used within a LocalePreferenceProvider"
++    );
++  }
++  return ctx;
++}
+diff --git a/src/components/user-menu.test.tsx b/src/components/user-menu.test.tsx
+new file mode 100644
+index 0000000..5320f2d
+--- /dev/null
++++ b/src/components/user-menu.test.tsx
+@@ -0,0 +1,159 @@
++import { describe, expect, it } from "vitest";
++import { act, render, screen, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { AssistantProvider } from "@/components/providers/assistant-provider";
++import { LocaleProvider } from "@/i18n";
++import { consoleSpy } from "@/test/console";
++import {
++  LOCALES,
++  SUPPORTED_LOCALES,
++  toResponseLanguage,
++  type Locale,
++} from "@/test/copy";
++import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
++import { stubNavigatorLanguage } from "@/test/navigator";
++import { UserMenu } from "./user-menu";
++
++// The menu is rendered as in the app: under the real LocaleProvider (locale
++// seeded from navigator.language) and the real AssistantProvider, which owns
++// the stored preference. Only fetch is stubbed. The user under test already
++// has `locale` stored, so the mount-time load applies it and seeds nothing.
++// The picker's lock while a reply streams is covered in thread.test.tsx,
++// where a reply can be started.
++
++const WAIT = { interval: 5 };
++
++async function renderMenu(locale: Locale, bff: FakeBffOptions = {}) {
++  stubNavigatorLanguage(locale);
++  const harness = installFakeBff({
++    storedPreferences: { response_language: toResponseLanguage(locale) },
++    ...bff,
++  });
++  render(
++    <LocaleProvider>
++      <AssistantProvider>
++        <UserMenu userInitial="S" />
++      </AssistantProvider>
++    </LocaleProvider>
++  );
++  await harness.bodyConsumed("/api/auth/csrf");
++  await harness.historyLoaded();
++  await harness.preferencesLoaded();
++  return harness;
++}
++
++/** Opens the menu (it closes itself after every selection). */
++async function openMenu(user: ReturnType<typeof userEvent.setup>, dict: Dict) {
++  await user.click(
++    screen.getByRole("button", { name: dict["userMenu.trigger"] })
++  );
++  return screen.findByRole("menu");
++}
++
++type Dict = (typeof LOCALES)[Locale]["dictionary"];
++
++describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
++  const dict = LOCALES[locale].dictionary;
++  const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
++  const otherDict = LOCALES[other].dictionary;
++
++  it("lists every supported locale by native name under the localized Language label, with the current one checked and enabled", async () => {
++    await renderMenu(locale);
++    const user = userEvent.setup();
++
++    await openMenu(user, dict);
++
++    expect(screen.getByText(dict["userMenu.language"])).toBeInTheDocument();
++    expect(
++      screen.queryByText(dict["userMenu.languageLockedWhileReplying"])
++    ).not.toBeInTheDocument();
++    const items = screen.getAllByRole("menuitemradio");
++    expect(items.map((el) => el.textContent)).toEqual(
++      SUPPORTED_LOCALES.map((l) => LOCALES[l].displayName)
++    );
++    for (const item of items) expect(item).not.toHaveAttribute("aria-disabled");
++    expect(
++      screen.getByRole("menuitemradio", { checked: true })
++    ).toHaveTextContent(LOCALES[locale].displayName);
++    // The sign-out action is still there, localized.
++    expect(
++      screen.getByRole("menuitem", {
++        name: new RegExp(dict["userMenu.signOut"]),
++      })
++    ).toBeInTheDocument();
++  });
++
++  it(`selecting ${LOCALES[other].displayName} PUTs its ISO 639-1 code, then re-renders in that locale with no reload`, async () => {
++    const harness = await renderMenu(locale);
++    const user = userEvent.setup();
++
++    await openMenu(user, dict);
++    await user.click(
++      screen.getByRole("menuitemradio", { name: LOCALES[other].displayName })
++    );
++
++    await waitFor(
++      () =>
++        expect(harness.preferencePuts).toEqual([
++          { response_language: toResponseLanguage(other) },
++        ]),
++      WAIT
++    );
++    // The chrome follows: the trigger's label and <html lang> are now the
++    // other locale's, and reopening shows the other item checked.
++    await waitFor(
++      () =>
++        expect(
++          screen.getByRole("button", { name: otherDict["userMenu.trigger"] })
++        ).toBeInTheDocument(),
++      WAIT
++    );
++    expect(document.documentElement.lang).toBe(other);
++    await openMenu(user, otherDict);
++    expect(
++      screen.getByText(otherDict["userMenu.language"])
++    ).toBeInTheDocument();
++    expect(
++      screen.getByRole("menuitemradio", { checked: true })
++    ).toHaveTextContent(LOCALES[other].displayName);
++    expect(consoleSpy.error).not.toHaveBeenCalled();
++  });
++
++  it("re-selecting the current locale issues no PUT", async () => {
++    const harness = await renderMenu(locale);
++    const user = userEvent.setup();
++
++    await openMenu(user, dict);
++    await user.click(
++      screen.getByRole("menuitemradio", { name: LOCALES[locale].displayName })
++    );
++    await act(async () => {});
++
++    expect(harness.preferencePuts).toEqual([]);
++  });
++
++  it("keeps the current locale and logs one console.error when the PUT fails", async () => {
++    const harness = await renderMenu(locale, {
++      preferencePutResponse: () => new Response("boom", { status: 500 }),
++    });
++    const user = userEvent.setup();
++
++    await openMenu(user, dict);
++    await user.click(
++      screen.getByRole("menuitemradio", { name: LOCALES[other].displayName })
++    );
++
++    await waitFor(
++      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
++      WAIT
++    );
++    expect(consoleSpy.error.mock.calls[0][0]).toMatch(
++      /LocalePreferenceProvider/
++    );
++    expect(harness.preferencePuts).toHaveLength(1); // attempted once
++    expect(document.documentElement.lang).toBe(locale);
++    expect(
++      screen.getByRole("button", { name: dict["userMenu.trigger"] })
++    ).toBeInTheDocument();
++  });
++});
+diff --git a/src/components/user-menu.tsx b/src/components/user-menu.tsx
+index 0b01a59..a078f38 100644
+--- a/src/components/user-menu.tsx
++++ b/src/components/user-menu.tsx
+@@ -1,28 +1,50 @@
+ "use client";
+ 
+-import { LogOutIcon } from "lucide-react";
++import { LanguagesIcon, LogOutIcon } from "lucide-react";
+ import { getCsrfToken } from "next-auth/react";
+ import { useEffect, useState } from "react";
+ import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
++  DropdownMenuLabel,
++  DropdownMenuRadioGroup,
++  DropdownMenuRadioItem,
++  DropdownMenuSeparator,
+   DropdownMenuTrigger,
+ } from "@/components/ui/dropdown-menu";
+-import { useT } from "@/i18n";
++import { useChatContext } from "@/components/providers/assistant-provider";
++import { useLocalePreference } from "@/components/providers/locale-preference-provider";
++import { LOCALES, SUPPORTED_LOCALES, useT } from "@/i18n";
+ 
+ interface UserMenuProps {
+   userInitial: string;
+ }
+ 
++const ITEM_CLASS =
++  "cursor-pointer text-[#1a1a18] focus:bg-[#f5f5f0] focus:text-[#1a1a18] dark:text-[#eee] dark:focus:bg-[#393937] dark:focus:text-[#eee]";
++
+ export function UserMenu({ userInitial }: UserMenuProps) {
+   const [csrfToken, setCsrfToken] = useState<string>("");
++  const { locale, choose } = useLocalePreference();
++  // Never flip the locale under an animating reply: the picker is locked
++  // while a reply is in flight and says so.
++  const { isLoading: languageLocked } = useChatContext();
+   const t = useT();
+ 
+   useEffect(() => {
+     getCsrfToken().then((token) => setCsrfToken(token || ""));
+   }, []);
+ 
++  // The provider persists first, then switches the chrome, so the interface
++  // and the reply language never disagree; on failure it logs and the radio
++  // (controlled by `locale`) snaps back.
++  const selectLocale = (value: string) => {
++    const next = SUPPORTED_LOCALES.find((l) => l === value);
++    if (!next || next === locale) return;
++    void choose(next);
++  };
++
+   return (
+     <DropdownMenu>
+       <DropdownMenuTrigger asChild>
+@@ -37,13 +59,32 @@ export function UserMenu({ userInitial }: UserMenuProps) {
+         align="end"
+         className="w-56 border-[#00000015] bg-white shadow-lg dark:border-[#6c6a6040] dark:bg-[#1f1e1b]"
+       >
++        <DropdownMenuLabel className="flex items-center gap-3 text-xs font-medium text-[#6b6a68] dark:text-[#9a9893]">
++          <LanguagesIcon className="h-4 w-4" />
++          {t("userMenu.language")}
++        </DropdownMenuLabel>
++        {languageLocked && (
++          <p className="px-2 pb-1 text-xs text-[#6b6a68] italic dark:text-[#9a9893]">
++            {t("userMenu.languageLockedWhileReplying")}
++          </p>
++        )}
++        <DropdownMenuRadioGroup value={locale} onValueChange={selectLocale}>
++          {SUPPORTED_LOCALES.map((l) => (
++            <DropdownMenuRadioItem
++              key={l}
++              value={l}
++              disabled={languageLocked}
++              className={`${ITEM_CLASS} text-sm`}
++            >
++              {LOCALES[l].displayName}
++            </DropdownMenuRadioItem>
++          ))}
++        </DropdownMenuRadioGroup>
++        <DropdownMenuSeparator className="bg-[#00000015] dark:bg-[#6c6a6040]" />
+         <form action="/api/auth/signout" method="POST">
+           <input type="hidden" name="csrfToken" value={csrfToken} />
+           <input type="hidden" name="callbackUrl" value="/login" />
+-          <DropdownMenuItem
+-            asChild
+-            className="cursor-pointer text-[#1a1a18] focus:bg-[#f5f5f0] focus:text-[#1a1a18] dark:text-[#eee] dark:focus:bg-[#393937] dark:focus:text-[#eee]"
+-          >
++          <DropdownMenuItem asChild className={ITEM_CLASS}>
+             <button type="submit" className="w-full">
+               <LogOutIcon className="mr-3 h-4 w-4 text-[#6b6a68] dark:text-[#9a9893]" />
+               <div className="flex flex-col items-start">
+diff --git a/src/hooks/use-chat-runtime.test.ts b/src/hooks/use-chat-runtime.test.ts
+index 8554de2..dc29107 100644
+--- a/src/hooks/use-chat-runtime.test.ts
++++ b/src/hooks/use-chat-runtime.test.ts
+@@ -12,16 +12,13 @@ import {
+   teardownMounted,
+   trackMount,
+ } from "@/test/timers";
++import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
+ import { useChatRuntime } from "./use-chat-runtime";
+ 
+ // The hook is locale-agnostic: it stores dictionary keys (`status`,
+ // `errorKey`), never copy, and needs no LocaleProvider. The rendered copy per
+ // locale is asserted in thread.test.tsx.
+ 
+-// The literal the hook stores for a voice turn with no transcript. Kept local
+-// on purpose: the test's point is the literal, not a shared constant.
+-const VOICE_SENTINEL = "[Voice message]";
+-
+ type Runtime = ReturnType<typeof useChatRuntime>;
+ type Result = { current: Runtime };
+ type SendArgs = Parameters<Runtime["sendMessage"]>;
+@@ -81,7 +78,7 @@ describe("useChatRuntime — locale-agnostic", () => {
+     // not copy (docs/i18n.md, "Never translate"), and is the one string the
+     // hook may share with the dictionary; it is masked before scanning.
+     const source = readFileSync("src/hooks/use-chat-runtime.ts", "utf8")
+-      .split(VOICE_SENTINEL)
++      .split(VOICE_MESSAGE_SENTINEL)
+       .join("");
+     const leaked = SUPPORTED_LOCALES.flatMap((locale) =>
+       Object.entries(LOCALES[locale].dictionary)
+@@ -224,8 +221,14 @@ describe("useChatRuntime — SSE event handling", () => {
+ });
+ 
+ describe("useChatRuntime — voice send", () => {
++  // The one literal anchor for the sentinel: it is persisted in chat history
++  // and compared by equality, so the exported constant must never drift.
++  it("the voice sentinel is the persisted literal", () => {
++    expect(VOICE_MESSAGE_SENTINEL).toBe("[Voice message]");
++  });
++
+   it.each([
+-    ["", VOICE_SENTINEL],
++    ["", VOICE_MESSAGE_SENTINEL],
+     ["Hello", "Hello"],
+   ])(
+     "stores transcript %j as the user turn text %j and posts an audio body",
+@@ -285,7 +288,7 @@ describe("useChatRuntime — timeouts", () => {
+     expect(result.current.messages[0].role).toBe("user");
+   });
+ 
+-  it("an audio-generation status extends the inactivity window past the 120s default", async () => {
++  it("an audio-generation status without a key (older worker) extends the inactivity window via the English keyword fallback", async () => {
+     const { result, stream } = await startStream();
+ 
+     await pushAndFlush(stream, {
+@@ -311,6 +314,74 @@ describe("useChatRuntime — timeouts", () => {
+     expect(result.current.isLoading).toBe(true);
+   });
+ 
++  // bt-servant-worker#407 adds a structured `key` to status events and
++  // localizes `message`, so the English keywords are no longer reliable; the
++  // key is authoritative whenever it is present.
++  it.each(["status_tts_generating", "status_tts_still_generating"])(
++    "a status keyed %s extends the inactivity window even when the localized message has no English keyword",
++    async (key) => {
++      const { result, stream } = await startStream();
++
++      await pushAndFlush(stream, {
++        type: "status",
++        key,
++        message: "Gerando resposta em áudio...",
++      });
++      // The message is rendered as-is; the key rides along for the view.
++      expect(result.current.status).toEqual({
++        text: "Gerando resposta em áudio...",
++        key,
++      });
++
++      await advance(125_000);
++      expect(stream.signal?.aborted).toBe(false);
++      expect(result.current.isLoading).toBe(true);
++    }
++  );
++
++  it("a keyed non-TTS status keeps the default 120s window", async () => {
++    const { result, stream } = await startStream();
++
++    await pushAndFlush(stream, {
++      type: "status",
++      key: "status_processing",
++      message: "Processando sua solicitação...",
++    });
++    expect(result.current.status).toEqual({
++      text: "Processando sua solicitação...",
++      key: "status_processing",
++    });
++
++    await advance(115_000);
++    expect(stream.signal?.aborted).toBe(false);
++    await advance(10_000);
++    expect(stream.signal?.aborted).toBe(true);
++    expect(result.current.isLoading).toBe(false);
++  });
++
++  // A key the client does not know (a newer worker) is tolerated: it is not
++  // carried on the status and the message heuristic decides the window.
++  it.each([
++    ["Generating audio response", false],
++    ["Processing", true],
++  ])(
++    "an unknown key with message %j falls back to the keyword heuristic (aborted at 125s: %s)",
++    async (message, abortedAfterDefault) => {
++      const { result, stream } = await startStream();
++
++      await pushAndFlush(stream, {
++        type: "status",
++        key: "status_something_new",
++        message,
++      });
++      expect(result.current.status).toEqual({ text: message });
++      expect("key" in result.current.status!).toBe(false);
++
++      await advance(125_000);
++      expect(stream.signal?.aborted).toBe(abortedAfterDefault);
++    }
++  );
++
+   it("a new event resets the inactivity clock", async () => {
+     const { result, stream } = await startStream();
+ 
+diff --git a/src/hooks/use-chat-runtime.ts b/src/hooks/use-chat-runtime.ts
+index ef05da0..3b8a626 100644
+--- a/src/hooks/use-chat-runtime.ts
++++ b/src/hooks/use-chat-runtime.ts
+@@ -6,11 +6,15 @@ import {
+ } from "@assistant-ui/react";
+ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+ import type { MessageKey } from "@/i18n";
+-import type {
+-  Attachment,
+-  ChatResponse,
+-  ChatHistoryResponse,
+-  SSEEvent,
++import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
++import {
++  isWorkerStatusKey,
++  TTS_STATUS_KEYS,
++  type Attachment,
++  type ChatResponse,
++  type ChatHistoryResponse,
++  type SSEEvent,
++  type WorkerStatusKey,
+ } from "@/types/engine";
+ 
+ // The hook is locale-agnostic: it never holds user-facing copy, only the
+@@ -23,10 +27,27 @@ export type StatusKey = Extract<MessageKey, `status.${string}`>;
+ 
+ /**
+  * What the loading indicator shows: a key the view translates, or status text
+- * from the worker, rendered as-is (the worker's structured status `key`
+- * replaces the text in #51 PR 3).
++ * from the worker, rendered as-is (the worker localizes it from the same
++ * stored preference). A worker status also carries its structured `key` when
++ * it is one the client knows, so the view can act on it later.
+  */
+-export type RuntimeStatus = { key: StatusKey } | { text: string };
++export type RuntimeStatus =
++  | { key: StatusKey }
++  | { text: string; key?: WorkerStatusKey };
++
++// TTS can take minutes for long responses, so a TTS status extends the
++// inactivity window. The worker's structured `key` (bt-servant-worker#407) is
++// authoritative whenever it is one we know, since `message` is localized and
++// may contain no English. An unknown key (a newer worker) and no key (an
++// older worker) both fall back to the keyword match on `message`. Both are
++// data, not copy: never localize them.
++const TTS_STATUS_KEYWORDS = ["audio", "tts", "speech"];
++
++function isTtsStatus(message: string, key?: WorkerStatusKey): boolean {
++  if (key !== undefined) return TTS_STATUS_KEYS.has(key);
++  const statusLower = message.toLowerCase();
++  return TTS_STATUS_KEYWORDS.some((keyword) => statusLower.includes(keyword));
++}
+ 
+ interface ChatMessage {
+   id: string;
+@@ -280,12 +301,11 @@ export function useChatRuntime() {
+         setMessages((prev) => [...prev, pending.message]);
+       }
+ 
+-      // Add user message. "[Voice message]" is a data sentinel (persisted in
+-      // history, compared by equality in thread.tsx) — never localize it.
++      // Add user message
+       const userMessage = createMessage(
+         `user-${Date.now()}`,
+         "user",
+-        text || "[Voice message]"
++        text || VOICE_MESSAGE_SENTINEL
+       );
+ 
+       setMessages((prev) => [...prev, userMessage]);
+@@ -380,21 +400,23 @@ export function useChatRuntime() {
+               lastEventTime = Date.now();
+ 
+               if (parsed.type === "status") {
+-                setStatus({ text: parsed.message });
+-                // TTS can take minutes for long responses — extend inactivity
+-                // window for all audio requests, plus keyword fallback for
+-                // text requests that unexpectedly generate audio
+-                if (isAudioRequestRef.current) {
++                // The worker's message is already localized; render as-is.
++                const key =
++                  parsed.key !== undefined && isWorkerStatusKey(parsed.key)
++                    ? parsed.key
++                    : undefined;
++                setStatus(
++                  key === undefined
++                    ? { text: parsed.message }
++                    : { text: parsed.message, key }
++                );
++                // Extend the inactivity window for every audio request, and
++                // for a text request that unexpectedly reaches TTS.
++                if (
++                  isAudioRequestRef.current ||
++                  isTtsStatus(parsed.message, key)
++                ) {
+                   inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
+-                } else {
+-                  const statusLower = parsed.message.toLowerCase();
+-                  if (
+-                    statusLower.includes("audio") ||
+-                    statusLower.includes("tts") ||
+-                    statusLower.includes("speech")
+-                  ) {
+-                    inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
+-                  }
+                 }
+               } else if (parsed.type === "progress") {
+                 // Guard: ignore progress chunks that arrive after a complete/error
+diff --git a/src/i18n/en.ts b/src/i18n/en.ts
+index fb53098..26e41ad 100644
+--- a/src/i18n/en.ts
++++ b/src/i18n/en.ts
+@@ -12,8 +12,11 @@
+  * Never add these here — they are data, not copy:
+  *   - the `"[Voice message]"` sentinel (persisted in history; written by
+  *     `use-chat-runtime.ts`, compared by equality in `thread.tsx`)
+- *   - the SSE status keyword heuristic (`includes("audio" | "tts" | "speech")`)
++ *   - the SSE status keys (`TTS_STATUS_KEYS` in `src/types/engine.ts`) and
++ *     their English keyword fallback (`includes("audio" | "tts" | "speech")`)
+  *     in `use-chat-runtime.ts`
++ *   - locale display names (`English`, `Português (Brasil)`): they live in
++ *     the `LOCALES` registry and are the same in every interface language
+  */
+ export const en = {
+   // Chat thread
+@@ -65,6 +68,8 @@ export const en = {
+ 
+   // User menu
+   "userMenu.trigger": "User menu",
++  "userMenu.language": "Language",
++  "userMenu.languageLockedWhileReplying": "Available after the current reply",
+   "userMenu.signOut": "Sign out",
+   "userMenu.signOutDescription": "End your current session",
+ 
+diff --git a/src/i18n/i18n.test.ts b/src/i18n/i18n.test.ts
+index 797690a..45f9dcd 100644
+--- a/src/i18n/i18n.test.ts
++++ b/src/i18n/i18n.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, expect, it, vi } from "vitest";
+ import { en, type MessageKey } from "./en";
+ import { DEFAULT_LOCALE, LOCALES, SUPPORTED_LOCALES } from "./locales";
+-import { getInitialLocale, normalizeLocale, t } from "./t";
++import { getInitialLocale, normalizeLocale, t, toResponseLanguage } from "./t";
+ 
+ // Values that are legitimately identical across locales (proper nouns).
+ // Any other value that is byte-identical to its English source is an
+@@ -38,6 +38,37 @@ describe("locale registry", () => {
+       "Hello, I'm BT Servant. How can I serve you today?"
+     );
+   });
++
++  it("gives every locale a unique ISO 639-1 responseLanguage (the worker's ISO_639_1_PATTERN)", () => {
++    const codes = SUPPORTED_LOCALES.map((l) => LOCALES[l].responseLanguage);
++    for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
++    expect(new Set(codes).size).toBe(codes.length);
++  });
++
++  it("gives every locale a distinct, non-empty native display name", () => {
++    const names = SUPPORTED_LOCALES.map((l) => LOCALES[l].displayName);
++    for (const name of names) expect(name.trim()).not.toBe("");
++    expect(new Set(names).size).toBe(names.length);
++    // Native, not English: the picker shows each language in itself.
++    expect(LOCALES["pt-BR"].displayName).toBe("Português (Brasil)");
++  });
++});
++
++describe("toResponseLanguage()", () => {
++  it.each([
++    ["en", "en"],
++    ["pt-BR", "pt"],
++  ] as const)("%s → %s", (locale, expected) => {
++    expect(toResponseLanguage(locale)).toBe(expected);
++  });
++
++  it("reads the registry's responseLanguage, which normalizes back to the same locale", () => {
++    for (const locale of SUPPORTED_LOCALES) {
++      const code = toResponseLanguage(locale);
++      expect(code, locale).toBe(LOCALES[locale].responseLanguage);
++      expect(normalizeLocale(code), locale).toBe(locale);
++    }
++  });
+ });
+ 
+ describe.each(OTHER_LOCALES)("dictionary parity: %s", (locale) => {
+diff --git a/src/i18n/index.ts b/src/i18n/index.ts
+index 706c58c..c3d4096 100644
+--- a/src/i18n/index.ts
++++ b/src/i18n/index.ts
+@@ -8,8 +8,9 @@ export {
+   SUPPORTED_LOCALES,
+   type Locale,
+ } from "./locales";
+-export { getInitialLocale, normalizeLocale, t } from "./t";
++export { getInitialLocale, normalizeLocale, t, toResponseLanguage } from "./t";
+ export {
++  getClientLocale,
+   LocaleProvider,
+   useLocale,
+   useT,
+diff --git a/src/i18n/locale-provider.test.tsx b/src/i18n/locale-provider.test.tsx
+index e5a1f0a..11b737f 100644
+--- a/src/i18n/locale-provider.test.tsx
++++ b/src/i18n/locale-provider.test.tsx
+@@ -1,4 +1,4 @@
+-import { afterEach, describe, expect, it, vi } from "vitest";
++import { describe, expect, it, vi } from "vitest";
+ import { act, render, screen, within } from "@testing-library/react";
+ import userEvent from "@testing-library/user-event";
+ import { hydrateRoot } from "react-dom/client";
+@@ -45,10 +45,6 @@ function stubEnv(value: string | undefined) {
+   vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", value);
+ }
+ 
+-afterEach(() => {
+-  document.documentElement.lang = "";
+-});
+-
+ describe("LocaleProvider — server render", () => {
+   it.each<[string | undefined, Locale]>([
+     [undefined, "en"],
+diff --git a/src/i18n/locale-provider.tsx b/src/i18n/locale-provider.tsx
+index 8b884ca..c2515c4 100644
+--- a/src/i18n/locale-provider.tsx
++++ b/src/i18n/locale-provider.tsx
+@@ -32,8 +32,13 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
+ // subscribe is a no-op.
+ const subscribeToNothing = () => () => {};
+ 
+-/** `NEXT_PUBLIC_DEFAULT_LOCALE` (lets staging pin pt-BR) wins over the browser's language. */
+-function getClientSnapshot(): Locale {
++/**
++ * The locale the browser resolves to once hydrated: `NEXT_PUBLIC_DEFAULT_LOCALE`
++ * (lets staging pin pt-BR) wins over `navigator.language`. Client only. Also
++ * what the preference provider seeds from, read at PUT time, because during
++ * hydration React state may still hold the server snapshot.
++ */
++export function getClientLocale(): Locale {
+   return process.env.NEXT_PUBLIC_DEFAULT_LOCALE
+     ? getInitialLocale()
+     : normalizeLocale(navigator.language);
+@@ -49,7 +54,7 @@ function getClientSnapshot(): Locale {
+ export function LocaleProvider({ children }: { children: ReactNode }) {
+   const seeded = useSyncExternalStore(
+     subscribeToNothing,
+-    getClientSnapshot,
++    getClientLocale,
+     getInitialLocale
+   );
+   const [override, setOverride] = useState<Locale | null>(null);
+diff --git a/src/i18n/locales.ts b/src/i18n/locales.ts
+index 1e44137..90d3dba 100644
+--- a/src/i18n/locales.ts
++++ b/src/i18n/locales.ts
+@@ -3,23 +3,43 @@ import { ptBR } from "./pt-BR";
+ 
+ interface LocaleEntry {
+   dictionary: Dictionary;
++  /** The language's name in itself, as the language picker shows it. */
++  displayName: string;
++  /**
++   * What the worker stores as `response_language` for this locale: an ISO
++   * 639-1 code (`pt`, `en`), validated worker-side against `/^[a-z]{2}$/`
++   * (`user-do.ts`, `ISO_639_1_PATTERN`). Regional variants collapse under
++   * that contract: `pt-BR` is stored as `pt`. Unique per locale.
++   */
++  responseLanguage: string;
+   /**
+    * BCP 47 primary language subtags (lower-case) that resolve to this locale
+    * when no supported locale matches the full tag: `pt` covers `pt`, `pt-PT`,
+    * `pt_br`, ... The worker stores bare ISO 639-1 codes, browsers send full
+    * tags, so both shapes must land here.
+    */
+-  primaries: readonly string[];
++  primaries: readonly [string, ...string[]];
+ }
+ 
+ /**
+  * The single registry of interface locales. `Locale`, `SUPPORTED_LOCALES`,
+- * `t()` and `normalizeLocale()` are all derived from it, so adding a locale
+- * is one dictionary file plus one entry here. See docs/i18n.md.
++ * `t()`, `normalizeLocale()` and `toResponseLanguage()` are all derived from
++ * it, so adding a locale is one dictionary file plus one entry here. See
++ * docs/i18n.md.
+  */
+ export const LOCALES = {
+-  en: { dictionary: en, primaries: ["en"] },
+-  "pt-BR": { dictionary: ptBR, primaries: ["pt"] },
++  en: {
++    dictionary: en,
++    displayName: "English",
++    responseLanguage: "en",
++    primaries: ["en"],
++  },
++  "pt-BR": {
++    dictionary: ptBR,
++    displayName: "Português (Brasil)",
++    responseLanguage: "pt",
++    primaries: ["pt"],
++  },
+ } satisfies Record<string, LocaleEntry>;
+ 
+ export type Locale = keyof typeof LOCALES;
+diff --git a/src/i18n/pt-BR.ts b/src/i18n/pt-BR.ts
+index 7b1cab2..f00073c 100644
+--- a/src/i18n/pt-BR.ts
++++ b/src/i18n/pt-BR.ts
+@@ -53,6 +53,8 @@ export const ptBR = {
+ 
+   // User menu
+   "userMenu.trigger": "Menu do usuário",
++  "userMenu.language": "Idioma",
++  "userMenu.languageLockedWhileReplying": "Disponível após a resposta atual",
+   "userMenu.signOut": "Sair",
+   "userMenu.signOutDescription": "Encerrar sua sessão atual",
+ 
+diff --git a/src/i18n/t.ts b/src/i18n/t.ts
+index 41e3d44..ecbe51c 100644
+--- a/src/i18n/t.ts
++++ b/src/i18n/t.ts
+@@ -37,6 +37,16 @@ export function normalizeLocale(input: string | undefined | null): Locale {
+   return byPrimary ?? DEFAULT_LOCALE;
+ }
+ 
++/**
++ * The code the worker stores as `response_language` for `locale`: the
++ * registry's `responseLanguage`, an ISO 639-1 code (`pt-BR` → `pt`,
++ * `en` → `en`). The worker validates it against `/^[a-z]{2}$/`, and
++ * `normalizeLocale()` maps it back to the same locale.
++ */
++export function toResponseLanguage(locale: Locale): string {
++  return LOCALES[locale].responseLanguage;
++}
++
+ /**
+  * The locale known before any browser signal — what the server renders,
+  * the client hydrates with, and the global error boundary shows:
+diff --git a/src/lib/voice-message.ts b/src/lib/voice-message.ts
+new file mode 100644
+index 0000000..bdb05ea
+--- /dev/null
++++ b/src/lib/voice-message.ts
+@@ -0,0 +1,9 @@
++/**
++ * The user-message text stored for a voice turn that has no transcript.
++ *
++ * Data, not copy: it is persisted in chat history by the worker and compared
++ * by equality (`use-chat-runtime.ts` writes it, `thread.tsx` recognises it),
++ * so it must never be localized or reworded. The label the user sees is the
++ * dictionary key `message.voiceMessage`. See docs/i18n.md, "Never translate".
++ */
++export const VOICE_MESSAGE_SENTINEL = "[Voice message]";
+diff --git a/src/test/copy.ts b/src/test/copy.ts
+index a6fea22..4acc8e1 100644
+--- a/src/test/copy.ts
++++ b/src/test/copy.ts
+@@ -10,6 +10,7 @@ export {
+   SUPPORTED_LOCALES,
+   en,
+   ptBR,
++  toResponseLanguage,
+   type Dictionary,
+   type Locale,
+   type MessageKey,
+diff --git a/src/test/fake-bff.ts b/src/test/fake-bff.ts
+index d226b5b..0d69217 100644
+--- a/src/test/fake-bff.ts
++++ b/src/test/fake-bff.ts
+@@ -1,11 +1,14 @@
+ import { expect, vi, type Mock } from "vitest";
+ import { waitFor } from "@testing-library/react";
+-import type { ChatHistoryEntry } from "@/types/engine";
++import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
+ import { createSseStream, type SseStream } from "./sse";
+ 
+ // A fetch router standing in for the BFF (`/api/*`). Installed as the global
+ // `fetch`; the vitest config's `unstubGlobals` removes it after each test.
+ 
++/** The preference route, for tests that override or await it. */
++export const PREFERENCES_ROUTE = "/api/preferences";
++
+ export type RouteHandler = (
+   url: string,
+   init?: RequestInit
+@@ -19,6 +22,16 @@ export interface FakeBffOptions {
+    * is pushed onto `streams` so the test can emit events itself.
+    */
+   onStream?: RouteHandler;
++  /**
++   * What `GET /api/preferences` returns. Default: `{}` (a user with nothing
++   * stored yet). A `PUT` merges into it, so a later `GET` sees the write.
++   */
++  storedPreferences?: UserPreferences;
++  /**
++   * Answers `PUT /api/preferences` after the body has been recorded in
++   * `preferencePuts`. Default: 200 with the merged stored value.
++   */
++  preferencePutResponse?: () => Response;
+   /** Further routes keyed by pathname (the query string is ignored). */
+   extraRoutes?: Record<string, RouteHandler>;
+ }
+@@ -29,15 +42,19 @@ export interface FakeBff {
+   streams: SseStream[];
+   /** Parsed JSON bodies of every `POST /api/chat/stream`, oldest first. */
+   streamBodies: Array<Record<string, unknown>>;
++  /** Parsed JSON bodies of every `PUT /api/preferences`, oldest first. */
++  preferencePuts: Array<Record<string, unknown>>;
+   /**
+-   * Resolves once the client has consumed the response body for `pathname`
+-   * (`json()`, `text()` or `blob()`). Any state the client sets in the same
+-   * promise chain has landed by then, inside a `waitFor` window, so no act()
+-   * warning is raised. Real timers only.
++   * Resolves once the client has consumed `times` response bodies for
++   * `pathname` (`json()`, `text()` or `blob()`; one per request). Any state
++   * the client sets in the same promise chain has landed by then, inside a
++   * `waitFor` window, so no act() warning is raised. Real timers only.
+    */
+-  bodyConsumed: (pathname: string) => Promise<void>;
++  bodyConsumed: (pathname: string, times?: number) => Promise<void>;
+   /** `bodyConsumed("/api/chat/history")`: the thread shows the branch the user would see. */
+   historyLoaded: () => Promise<void>;
++  /** `bodyConsumed(PREFERENCES_ROUTE, times)`: the `times`-th GET has been read and applied. */
++  preferencesLoaded: (times?: number) => Promise<void>;
+ }
+ 
+ function json(body: unknown): Response {
+@@ -65,7 +82,9 @@ function trackConsumption(response: Response, onConsumed: () => void) {
+ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
+   const streams: SseStream[] = [];
+   const streamBodies: Array<Record<string, unknown>> = [];
+-  const consumed = new Set<string>();
++  const preferencePuts: Array<Record<string, unknown>> = [];
++  let stored: UserPreferences = { ...opts.storedPreferences };
++  const consumed = new Map<string, number>();
+ 
+   const routes: Record<string, RouteHandler> = {
+     "/api/chat/history": () => json({ entries: opts.historyEntries ?? [] }),
+@@ -76,7 +95,17 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
+       streams.push(stream);
+       return stream.response;
+     },
+-    "/api/preferences": () => json({}),
++    [PREFERENCES_ROUTE]: (_url, init) => {
++      if (init?.method === "PUT") {
++        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
++        preferencePuts.push(body);
++        stored = { ...stored, ...body };
++        if (opts.preferencePutResponse) return opts.preferencePutResponse();
++      }
++      return json(stored);
++    },
++    // next-auth's getCsrfToken() (user menu) fetches this on mount.
++    "/api/auth/csrf": () => json({ csrfToken: "test-csrf-token" }),
+     ...opts.extraRoutes,
+   };
+ 
+@@ -91,25 +120,30 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
+     const route = routes[pathname];
+     if (!route) throw new Error(`Unexpected fetch: ${url}`);
+     return trackConsumption(await route(url, init), () =>
+-      consumed.add(pathname)
++      consumed.set(pathname, (consumed.get(pathname) ?? 0) + 1)
+     );
+   });
+   vi.stubGlobal("fetch", fetchMock);
+ 
+   // waitFor polls on the real clock; under vi.useFakeTimers() it would hang
+   // until its own timeout, so fail fast with the caller's name instead.
+-  const waitConsumed = async (name: string, pathname: string) => {
++  const waitConsumed = async (name: string, pathname: string, times = 1) => {
+     if (vi.isFakeTimers()) throw new Error(`${name} requires real timers`);
+-    await waitFor(() => expect(consumed.has(pathname)).toBe(true), {
+-      interval: 5,
+-    });
++    await waitFor(
++      () => expect(consumed.get(pathname) ?? 0).toBeGreaterThanOrEqual(times),
++      { interval: 5 }
++    );
+   };
+ 
+   return {
+     fetchMock,
+     streams,
+     streamBodies,
+-    bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
++    preferencePuts,
++    bodyConsumed: (pathname, times) =>
++      waitConsumed("bodyConsumed", pathname, times),
+     historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
++    preferencesLoaded: (times) =>
++      waitConsumed("preferencesLoaded", PREFERENCES_ROUTE, times),
+   };
+ }
+diff --git a/src/types/engine.ts b/src/types/engine.ts
+index a099994..d2243ec 100644
+--- a/src/types/engine.ts
++++ b/src/types/engine.ts
+@@ -53,9 +53,43 @@ export interface ChatHistoryResponse {
+   offset: number;
+ }
+ 
++/**
++ * The worker's stable status ids (bt-servant-worker#407). The client reads
++ * only the TTS members (`TTS_STATUS_KEYS`); anything else on the wire is
++ * tolerated and falls back to the message heuristic in use-chat-runtime.ts.
++ */
++export const WORKER_STATUS_KEYS = [
++  "status_queued",
++  "status_processing",
++  "status_preparing",
++  "status_executing_tools",
++  "status_transcribing",
++  "status_tts_generating",
++  "status_tts_still_generating",
++] as const;
++
++export type WorkerStatusKey = (typeof WORKER_STATUS_KEYS)[number];
++
++export function isWorkerStatusKey(key: string): key is WorkerStatusKey {
++  return (WORKER_STATUS_KEYS as readonly string[]).includes(key);
++}
++
++/**
++ * The statuses during which the worker is synthesizing speech. This set is
++ * the contract: a key outside it (say a future `status_tts_*_one/_other`
++ * split) keeps the default window until it is added here.
++ */
++export const TTS_STATUS_KEYS: ReadonlySet<WorkerStatusKey> = new Set([
++  "status_tts_generating",
++  "status_tts_still_generating",
++]);
++
+ // SSE event types for streaming endpoint (matching backend)
+ export type SSEEvent =
+-  | { type: "status"; message: string }
++  // `key` is the worker's status id (a `WorkerStatusKey` on a current
++  // worker; typed open because older workers send none and newer ones may
++  // add more); `message` is already localized.
++  | { type: "status"; message: string; key?: string }
+   | { type: "progress"; text: string }
+   | { type: "complete"; response: ChatResponse }
+   | { type: "error"; error: string }
+diff --git a/vitest.setup.ts b/vitest.setup.ts
+index 7607032..cb71483 100644
+--- a/vitest.setup.ts
++++ b/vitest.setup.ts
+@@ -56,4 +56,6 @@ afterEach(() => {
+   // an open stream, releasing an <audio> element) log too.
+   cleanup();
+   assertNoReactWarnings();
++  // LocaleProvider writes <html lang>; jsdom's document outlives the test.
++  document.documentElement.lang = "";
+ });

@@ -3,6 +3,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime, type RuntimeStatus } from "@/hooks/use-chat-runtime";
 import { createContext, useContext, ReactNode } from "react";
+import { toResponseLanguage, useLocale } from "@/i18n";
 import { LocalePreferenceProvider } from "./locale-preference-provider";
 
 interface ChatContextValue {
@@ -29,6 +30,9 @@ export function useChatContext() {
 }
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
+  // Every chat request carries the interface locale as a per-turn hint, so
+  // the reply language never waits on the preference PUT.
+  const { locale } = useLocale();
   const {
     runtime,
     sendMessage,
@@ -38,7 +42,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     streamingText,
     finalizeComplete,
     isCompleting,
-  } = useChatRuntime();
+  } = useChatRuntime({ languageHint: toResponseLanguage(locale) });
 
   return (
     <ChatContext.Provider

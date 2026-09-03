@@ -10,6 +10,12 @@ export interface ChatRequest {
   audio_base64?: string;
   audio_format?: string; // "webm", "ogg", "mp3"
   org?: string; // Organization for MCP server selection (defaults to DEFAULT_ORG)
+  /**
+   * ISO 639-1 code of the interface locale at send time. The worker applies
+   * it to this turn only, without persisting, so a first-time user whose
+   * seed PUT is still in flight is answered in the right language.
+   */
+  response_language_hint?: string;
 }
 
 export type PdfAttachment = {

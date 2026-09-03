@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
-import { LOCALES, SUPPORTED_LOCALES } from "@/test/copy";
+import { LOCALES, SUPPORTED_LOCALES, toResponseLanguage } from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import {
@@ -51,9 +51,12 @@ afterEach(teardownMounted);
  * timers, mirroring real usage where history resolves long before the user
  * sends anything.
  */
-async function mountRuntime(opts?: FakeBffOptions) {
+async function mountRuntime(
+  opts?: FakeBffOptions,
+  hookOpts?: Parameters<typeof useChatRuntime>[0]
+) {
   const harness = installFakeBff(opts);
-  const { result, unmount } = renderHook(() => useChatRuntime());
+  const { result, unmount } = renderHook(() => useChatRuntime(hookOpts));
   trackMount({ unmount, streams: harness.streams });
   await harness.historyLoaded();
   return { harness, result };
@@ -65,8 +68,12 @@ async function mountRuntime(opts?: FakeBffOptions) {
  * pushed with `pushAndFlush`, time passes with `advance`, and assertions are
  * synchronous.
  */
-async function startStream(opts?: FakeBffOptions, message: SendArgs = ["hi"]) {
-  const { harness, result } = await mountRuntime(opts);
+async function startStream(
+  opts?: FakeBffOptions,
+  message: SendArgs = ["hi"],
+  hookOpts?: Parameters<typeof useChatRuntime>[0]
+) {
+  const { harness, result } = await mountRuntime(opts, hookOpts);
   vi.useFakeTimers();
   await act(async () => {
     void result.current.sendMessage(...message);
@@ -97,6 +104,30 @@ describe("useChatRuntime — locale-agnostic", () => {
         .map(([key]) => `${locale}:${key}`)
     );
     expect(leaked).toEqual([]);
+  });
+});
+
+describe("useChatRuntime — response_language_hint", () => {
+  it.each(SUPPORTED_LOCALES)(
+    "the stream POST body carries the code for %s on every request",
+    async (locale) => {
+      const languageHint = toResponseLanguage(locale);
+      const { harness } = await startStream({}, ["hi"], { languageHint });
+
+      expect(harness.streamBodies).toHaveLength(1);
+      expect(harness.streamBodies[0]).toMatchObject({
+        message: "hi",
+        response_language_hint: languageHint,
+      });
+    }
+  );
+
+  it("sends no hint when the hook is given none", async () => {
+    const { harness } = await startStream();
+
+    expect(harness.streamBodies[0]).not.toHaveProperty(
+      "response_language_hint"
+    );
   });
 });
 

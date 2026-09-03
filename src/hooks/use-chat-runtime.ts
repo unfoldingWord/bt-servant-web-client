@@ -125,7 +125,16 @@ function createMessage(
   };
 }
 
-export function useChatRuntime() {
+/**
+ * `languageHint`: the ISO 639-1 code of the current interface locale, sent
+ * as `response_language_hint` on every chat request so the reply language
+ * never depends on the preference PUT having landed. Read through a ref at
+ * send time; it is deliberately not a `sendMessage` dependency
+ * (docs/streaming-animation.md).
+ */
+export function useChatRuntime({
+  languageHint,
+}: { languageHint?: string } = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
@@ -137,6 +146,10 @@ export function useChatRuntime() {
   const streamingTextRef = useRef(streamingText);
   const abortControllerRef = useRef<AbortController | null>(null);
   const sentAtRef = useRef<number | null>(null);
+  const languageHintRef = useRef(languageHint);
+  useEffect(() => {
+    languageHintRef.current = languageHint;
+  }, [languageHint]);
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
@@ -390,6 +403,7 @@ export function useChatRuntime() {
             message_type: audioBase64 ? "audio" : "text",
             audio_base64: audioBase64,
             audio_format: audioFormat,
+            response_language_hint: languageHintRef.current,
           }),
           signal: abortController.signal,
         });

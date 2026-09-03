@@ -68,6 +68,10 @@ export const en = {
   "recorder.cancel": "Cancel",
   "recorder.stop": "Stop",
 
+  // Audio player (icon-only toggle)
+  "audioPlayer.play": "Play",
+  "audioPlayer.pause": "Pause",
+
   // User menu
   "userMenu.trigger": "User menu",
   "userMenu.language": "Language",

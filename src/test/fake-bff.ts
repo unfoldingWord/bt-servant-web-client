@@ -31,7 +31,7 @@ export interface FakeBffOptions {
    * Answers `PUT /api/preferences` after the body has been recorded in
    * `preferencePuts`. Default: 200 with the merged stored value.
    */
-  preferencePutResponse?: () => Response;
+  preferencePutResponse?: () => Response | Promise<Response>;
   /** Further routes keyed by pathname (the query string is ignored). */
   extraRoutes?: Record<string, RouteHandler>;
 }
