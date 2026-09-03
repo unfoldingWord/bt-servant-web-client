@@ -22,7 +22,8 @@ export function initAnalytics(): void {
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   if (!key) return; // unset => analytics off; deploys stay safe before secrets land
   posthog.init(key, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
+    api_host:
+      process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
     // A chat UI is full of user-typed and model-generated text. Never let the
     // SDK vacuum it up: no autocapture, no session replay, mask everything.
     autocapture: false,
@@ -37,7 +38,10 @@ export function initAnalytics(): void {
 }
 
 /** Fire-and-forget. Safe to call before init or with analytics disabled. */
-export function track(event: string, properties?: Record<string, unknown>): void {
+export function track(
+  event: string,
+  properties?: Record<string, unknown>
+): void {
   if (!initialized) return;
   posthog.capture(event, properties);
 }

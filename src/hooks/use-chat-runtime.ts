@@ -199,7 +199,9 @@ export function useChatRuntime() {
       response_count: data.responses.length,
       has_audio: Boolean(data.voice_audio_url || data.voice_audio_base64),
       has_attachments: Boolean(data.attachments?.length),
-      duration_ms: sentAtRef.current ? Date.now() - sentAtRef.current : undefined,
+      duration_ms: sentAtRef.current
+        ? Date.now() - sentAtRef.current
+        : undefined,
     });
     sentAtRef.current = null;
     const joinedResponse = data.responses.join("\n\n");
@@ -244,7 +246,9 @@ export function useChatRuntime() {
   const handleError = useCallback((errorMessage: string) => {
     console.error("[handleError]", errorMessage);
     track("chat_response_failed", {
-      duration_ms: sentAtRef.current ? Date.now() - sentAtRef.current : undefined,
+      duration_ms: sentAtRef.current
+        ? Date.now() - sentAtRef.current
+        : undefined,
     });
     sentAtRef.current = null;
     pendingCompleteRef.current = null;
