@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
+import { LOCALES, SUPPORTED_LOCALES } from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import {
@@ -79,6 +81,27 @@ async function startStream(opts?: FakeBffOptions, message: SendArgs = ["hi"]) {
 }
 
 // ---------------------------------------------------------------------------
+
+describe("useChatRuntime — locale-agnostic", () => {
+  // The lint guard only sees JSX, so a hook returning copy for display would
+  // slip past it. This pins the convention: the hook's source contains no
+  // dictionary value of any locale, only keys.
+  it("contains no dictionary copy in its source", () => {
+    // Relative to the project root, where vitest runs (import.meta.url is
+    // not a file: URL under jsdom). The "[Voice message]" sentinel is data,
+    // not copy (docs/i18n.md, "Never translate"), and is the one string the
+    // hook may share with the dictionary; it is masked before scanning.
+    const source = readFileSync("src/hooks/use-chat-runtime.ts", "utf8")
+      .split(VOICE_SENTINEL)
+      .join("");
+    const leaked = SUPPORTED_LOCALES.flatMap((locale) =>
+      Object.entries(LOCALES[locale].dictionary)
+        .filter(([, value]) => source.includes(value))
+        .map(([key]) => `${locale}:${key}`)
+    );
+    expect(leaked).toEqual([]);
+  });
+});
 
 describe("useChatRuntime — SSE event handling", () => {
   it("reports the connecting key once the stream opens, then the worker's status text", async () => {

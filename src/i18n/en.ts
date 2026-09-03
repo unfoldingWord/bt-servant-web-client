@@ -36,6 +36,7 @@ export const en = {
 
   // Composer
   "composer.placeholder": "How can I help you today?",
+  "composer.send": "Send",
   // Same text as `message.voiceMessage` on purpose: one names the control
   // that starts a recording, the other labels a sent voice turn. Either may
   // be reworded independently in any locale.
@@ -47,6 +48,7 @@ export const en = {
   "message.hideTranscript": "Hide transcript",
   "message.deliveryFailed":
     "Sorry, I couldn't deliver a response. Please try again.",
+  "message.copy": "Copy message",
   "message.copyCode": "Copy",
 
   // Streaming status and runtime errors. The runtime hook stores these keys
@@ -60,6 +62,8 @@ export const en = {
   // Voice recorder
   "recorder.recording": "Recording...",
   "recorder.starting": "Starting...",
+  "recorder.cancel": "Cancel",
+  "recorder.stop": "Stop",
 
   // User menu
   "userMenu.trigger": "User menu",
@@ -73,7 +77,8 @@ export const en = {
   "login.continueWithGoogle": "Continue with Google",
   "login.signingIn": "Signing in...",
 
-  // Global error boundary (rendered without a LocaleProvider; always default locale)
+  // Global error boundary (rendered without a LocaleProvider; shows the
+  // initial locale: env pin or default)
   "globalError.heading": "Something went wrong.",
   "globalError.retry": "Try again",
 } as const;

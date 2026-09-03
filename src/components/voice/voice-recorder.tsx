@@ -76,7 +76,12 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
       </div>
 
       <div className="flex gap-2">
-        <Button variant="outline" size="icon" onClick={handleCancel}>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleCancel}
+          aria-label={t("recorder.cancel")}
+        >
           <XIcon className="size-4" />
         </Button>
         <Button
@@ -85,6 +90,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
           onClick={handleStop}
           disabled={!isRecording}
           className="bg-red-500 hover:bg-red-600"
+          aria-label={t("recorder.stop")}
         >
           <SquareIcon className="size-4" />
         </Button>

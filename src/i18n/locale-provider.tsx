@@ -34,9 +34,9 @@ const subscribeToNothing = () => () => {};
 
 /** `NEXT_PUBLIC_DEFAULT_LOCALE` (lets staging pin pt-BR) wins over the browser's language. */
 function getClientSnapshot(): Locale {
-  return normalizeLocale(
-    process.env.NEXT_PUBLIC_DEFAULT_LOCALE || navigator.language
-  );
+  return process.env.NEXT_PUBLIC_DEFAULT_LOCALE
+    ? getInitialLocale()
+    : normalizeLocale(navigator.language);
 }
 
 /**

@@ -28,6 +28,7 @@ export const ptBR = {
 
   // Composer
   "composer.placeholder": "Como posso te ajudar hoje?",
+  "composer.send": "Enviar",
   "composer.voiceButton": "Mensagem de voz",
 
   // Messages
@@ -35,7 +36,8 @@ export const ptBR = {
   "message.showTranscript": "Mostrar transcrição",
   "message.hideTranscript": "Ocultar transcrição",
   "message.deliveryFailed":
-    "Desculpe, não consegui enviar uma resposta. Tente novamente.",
+    "Desculpe, não consegui gerar uma resposta. Tente novamente.",
+  "message.copy": "Copiar mensagem",
   "message.copyCode": "Copiar",
 
   // Streaming status and runtime errors
@@ -48,6 +50,8 @@ export const ptBR = {
   // Voice recorder
   "recorder.recording": "Gravando...",
   "recorder.starting": "Iniciando...",
+  "recorder.cancel": "Cancelar",
+  "recorder.stop": "Parar",
 
   // User menu
   "userMenu.trigger": "Menu do usuário",
@@ -57,7 +61,7 @@ export const ptBR = {
   // Login page
   "login.heading": "Traduza a Palavra de Deus ainda melhor.",
   "login.subheading":
-    "Interface conversacional para recursos de tradução selecionados",
+    "Interface conversacional para recursos de tradução criteriosamente selecionados",
   "login.continueWithGoogle": "Continuar com o Google",
   "login.signingIn": "Entrando...",
 

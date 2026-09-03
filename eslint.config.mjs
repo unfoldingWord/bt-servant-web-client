@@ -208,21 +208,23 @@ const eslintConfig = defineConfig([
             "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
         },
         {
-          // aria-label={"text"} and aria-label={`text`}
+          // aria-label={"text"} and aria-label={`text`}. A template literal counts
+          // only if its static text has letters: `${minutes}:${seconds}` is a
+          // value, not copy (same filter as the Literal[value=...] selectors).
           selector:
-            "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > JSXExpressionContainer > :matches(Literal, TemplateLiteral)",
+            "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > JSXExpressionContainer > :matches(Literal, TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
           message:
             "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
         },
         {
           selector:
-            "JSXExpressionContainer > ConditionalExpression > Literal[value=/[A-Za-z]{2,}/]",
+            "JSXExpressionContainer > ConditionalExpression > :matches(Literal[value=/[A-Za-z]{2,}/], TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
           message:
             "Hardcoded string in a JSX conditional; use the i18n dictionary (useT()/t()). See docs/i18n.md.",
         },
         {
           selector:
-            "JSXExpressionContainer > LogicalExpression > Literal[value=/[A-Za-z]{2,}/]",
+            "JSXExpressionContainer > LogicalExpression > :matches(Literal[value=/[A-Za-z]{2,}/], TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
           message:
             "Hardcoded string in a JSX logical expression; use the i18n dictionary (useT()/t()). See docs/i18n.md.",
         },

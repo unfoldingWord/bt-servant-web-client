@@ -102,6 +102,10 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
 
       expect(screen.getByText(GREETING)).toBeInTheDocument();
       expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+      // Icon-only send button: its accessible name is dictionary-backed.
+      expect(
+        screen.getByRole("button", { name: dict["composer.send"] })
+      ).toBeInTheDocument();
       expect(document.documentElement.lang).toBe(locale);
 
       // Every fixture chip is on screen, and nothing else with the button role
@@ -263,6 +267,10 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       ).toBeInTheDocument();
       expect(screen.getByText(DISCLAIMER)).toBeInTheDocument();
       expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+      // Icon-only copy button on the last assistant message.
+      expect(
+        screen.getByRole("button", { name: dict["message.copy"] })
+      ).toBeInTheDocument();
     });
 
     // Data, not copy: the persisted sentinel is compared by equality and so

@@ -88,35 +88,52 @@ describe("LocaleProvider — client seed", () => {
     }
   );
 
-  it("hydrates the English server markup without a mismatch, then switches to the browser's pt-BR", async () => {
-    stubEnv(undefined);
-    stubNavigatorLanguage("pt-BR");
+  // Real hydration of real server markup, on both seed paths: no pin (the
+  // browser's language takes over after hydration) and a pin (the browser is
+  // ignored, both sides agree up front).
+  it.each<[string | undefined, string, Locale, Locale]>([
+    [undefined, "pt-BR", "en", "pt-BR"],
+    ["pt-BR", "en-US", "pt-BR", "pt-BR"],
+  ])(
+    "env=%j navigator.language=%s: hydrates %s markup without a mismatch, then shows %s",
+    async (env, navLang, ssrLocale, finalLocale) => {
+      stubEnv(env);
+      stubNavigatorLanguage(navLang);
 
-    const container = document.body.appendChild(document.createElement("div"));
-    container.innerHTML = renderToString(ui);
-    expect(within(container).getByTestId("locale")).toHaveTextContent("en");
+      const container = document.body.appendChild(
+        document.createElement("div")
+      );
+      container.innerHTML = renderToString(ui);
+      expect(within(container).getByTestId("locale")).toHaveTextContent(
+        ssrLocale
+      );
 
-    const recoverable: unknown[] = [];
-    let root!: ReturnType<typeof hydrateRoot>;
-    await act(async () => {
-      root = hydrateRoot(container, ui, {
-        onRecoverableError: (e) => recoverable.push(e),
-      });
-    });
+      const recoverable: unknown[] = [];
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      try {
+        await act(async () => {
+          root = hydrateRoot(container, ui, {
+            onRecoverableError: (e) => recoverable.push(e),
+          });
+        });
 
-    // No hydration mismatch was recovered from or logged...
-    expect(recoverable).toEqual([]);
-    expect(consoleSpy.error).not.toHaveBeenCalled();
-    // ...and the post-hydration update applied the browser's language.
-    expect(within(container).getByTestId("locale")).toHaveTextContent("pt-BR");
-    expect(within(container).getByTestId("welcome")).toHaveTextContent(
-      welcome("pt-BR")
-    );
-    expect(document.documentElement.lang).toBe("pt-BR");
-
-    await act(async () => root.unmount());
-    container.remove();
-  });
+        // No hydration mismatch was recovered from or logged...
+        expect(recoverable).toEqual([]);
+        expect(consoleSpy.error).not.toHaveBeenCalled();
+        // ...and the post-hydration state is the expected locale.
+        expect(within(container).getByTestId("locale")).toHaveTextContent(
+          finalLocale
+        );
+        expect(within(container).getByTestId("welcome")).toHaveTextContent(
+          welcome(finalLocale)
+        );
+        expect(document.documentElement.lang).toBe(finalLocale);
+      } finally {
+        await act(async () => root?.unmount());
+        container.remove();
+      }
+    }
+  );
 
   it("keeps document.documentElement.lang in sync on every setLocale", async () => {
     stubEnv(undefined);
