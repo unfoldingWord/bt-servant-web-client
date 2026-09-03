@@ -48,9 +48,13 @@ interface LocalePreferenceContextValue {
   /**
    * Persists `locale` as the user's `response_language`, then applies it to
    * the chrome (through the same hold as the load: never under an animating
-   * reply). A load or an earlier `choose` still in flight is superseded, so
-   * neither can revert or overwrite the latest pick. Never rejects: a failed
-   * write is logged with context and the current locale stays.
+   * reply). Writes are serialized: no PUT starts before the previous one has
+   * settled, and a pick that is no longer the latest by the time its turn
+   * comes is skipped, so the last PUT sent is always the latest pick and the
+   * worker cannot end up storing an older one. A load still in flight is
+   * superseded. Resolves when this pick's write has settled or been
+   * skipped; never rejects (a failed write is logged with context and the
+   * current locale stays).
    */
   choose: (locale: Locale) => Promise<void>;
 }
@@ -132,10 +136,12 @@ export function LocalePreferenceProvider({
   const [loaded, setLoaded] = useState<Locale | null>(null);
   // The mount-time load, so `choose` can cancel it.
   const loadRef = useRef<AbortController | null>(null);
-  // The latest `choose` PUT, so the next pick can cancel it, and its
-  // generation, so a stale completion is ignored.
-  const chooseAbortRef = useRef<AbortController | null>(null);
+  // Picks are numbered so only the latest one writes and applies; their
+  // PUTs run one after another on this chain. Aborting a fetch would not
+  // recall a PUT the server has already received, so serialization, not
+  // cancellation, is what keeps storage at the latest pick.
   const chooseGenerationRef = useRef(0);
+  const writeChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     onResponseLanguageHintChange?.(responseLanguageHint);
@@ -189,31 +195,36 @@ export function LocalePreferenceProvider({
     setLocale(loaded);
   }, [loaded, hold, setLocale]);
 
-  const choose = useCallback(async (next: Locale) => {
-    // The user's pick supersedes a load still in flight or held, and any
-    // earlier pick whose PUT has not landed: however late either resolves,
-    // it must not revert or overwrite what the user chose last.
+  const choose = useCallback((next: Locale) => {
+    // The user's pick supersedes a load still in flight or held: however
+    // late its GET resolves, it must not revert what the user chose.
     loadRef.current?.abort();
     loadRef.current = null;
-    chooseAbortRef.current?.abort();
-    const controller = new AbortController();
-    chooseAbortRef.current = controller;
     const generation = ++chooseGenerationRef.current;
     setLoaded(null);
     setReady(true);
     setResponseLanguageHint(toResponseLanguage(next));
-    try {
-      await saveLocalePreference(next, controller.signal);
-      if (generation !== chooseGenerationRef.current) return; // superseded
-      // Through the apply effect, so a pick that lands mid-reply waits too.
-      setLoaded(next);
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      console.error(
-        "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
-        { locale: next, error }
-      );
-    }
+
+    const isLatest = () => generation === chooseGenerationRef.current;
+    const write = async () => {
+      // Coalesce: a newer pick arrived while an earlier write was in flight.
+      if (!isLatest()) return;
+      try {
+        await saveLocalePreference(next);
+        if (!isLatest()) return; // its own step will write and apply
+        // Through the apply effect, so a pick landing mid-reply waits too.
+        setLoaded(next);
+      } catch (error) {
+        if (!isLatest()) return;
+        console.error(
+          "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
+          { locale: next, error }
+        );
+      }
+    };
+    const step = writeChainRef.current.then(write);
+    writeChainRef.current = step;
+    return step;
   }, []);
 
   const value = useMemo<LocalePreferenceContextValue>(

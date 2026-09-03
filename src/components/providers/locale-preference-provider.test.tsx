@@ -444,9 +444,11 @@ describe("LocalePreferenceProvider — choose()", () => {
     expect(document.documentElement.lang).toBe("pt-BR");
   });
 
-  // Regression: two quick picks. The first PUT resolving late must neither
-  // flip the chrome back nor be the value that ends up stored.
-  it("serializes picks: a superseded pick's late PUT changes nothing", async () => {
+  // Regression: two quick picks. Aborting a fetch cannot recall a PUT the
+  // server already has, so the second PUT must not start until the first
+  // has settled; then the last PUT sent is the latest pick, and the first
+  // pick's late completion changes nothing.
+  it("serializes writes: the second PUT waits for the first, and the last PUT sent is the latest pick", async () => {
     const { preferencePutResponse, answerFirst } = deferredFirstPut();
     const { harness, result } = mount({
       navigator: "en-US",
@@ -456,22 +458,91 @@ describe("LocalePreferenceProvider — choose()", () => {
     await preferencesRead(harness);
 
     let first!: Promise<void>;
+    let second!: Promise<void>;
     act(() => {
       first = result.current.choose("pt-BR");
     });
-    await act(() => result.current.choose("en"));
-    expect(result.current.locale).toBe("en");
+    await act(async () => {}); // the first PUT is now in flight
+    act(() => {
+      second = result.current.choose("en");
+    });
+    await act(async () => {});
+    // Only the first PUT is out; the second is queued behind it.
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+    ]);
     expect(result.current.responseLanguageHint).toBe("en");
+    expect(result.current.locale).toBe("en");
 
     await answerFirst();
     await first;
+    await second;
+    await act(async () => {});
 
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("en") },
+    ]);
     expect(result.current.locale).toBe("en");
     expect(document.documentElement.lang).toBe("en");
-    expect(harness.preferencePuts.at(-1)).toEqual({
-      response_language: toResponseLanguage("en"),
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
+  it("coalesces: of three rapid picks, the intermediate one is never written", async () => {
+    const { preferencePutResponse, answerFirst } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse,
     });
-    expect(harness.preferencePuts).toHaveLength(2);
+    await preferencesRead(harness);
+
+    act(() => {
+      void result.current.choose("pt-BR");
+    });
+    await act(async () => {}); // in flight
+    let last!: Promise<void>;
+    act(() => {
+      void result.current.choose("en");
+      last = result.current.choose("pt-BR");
+    });
+    await act(async () => {});
+    expect(harness.preferencePuts).toHaveLength(1);
+
+    await answerFirst();
+    await last;
+    await act(async () => {});
+
+    // First (already in flight) and last; the middle `en` was skipped.
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("pt-BR") },
+    ]);
+    expect(result.current.locale).toBe("pt-BR");
+    expect(result.current.responseLanguageHint).toBe("pt");
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
+  it("coalesces picks made in the same tick down to one PUT for the latest", async () => {
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+    });
+    await preferencesRead(harness);
+
+    let last!: Promise<void>;
+    act(() => {
+      void result.current.choose("pt-BR");
+      last = result.current.choose("en");
+      last = result.current.choose("pt-BR");
+    });
+    await last;
+    await act(async () => {});
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+    ]);
+    expect(result.current.locale).toBe("pt-BR");
     expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
