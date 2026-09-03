@@ -52,8 +52,19 @@ export interface Mounted {
 
 let mounted: Mounted | null = null;
 
-/** Records what the file-level `afterEach(teardownMounted)` must unmount. */
+/**
+ * Records what the file-level `afterEach(teardownMounted)` must unmount.
+ * A second mount in the same test unmounts the first synchronously so no tree
+ * is left for the setup file's cleanup() after real timers are restored.
+ */
 export function trackMount(next: Mounted) {
+  if (mounted) {
+    const previous = mounted;
+    act(() => {
+      previous.unmount();
+      for (const stream of previous.streams ?? []) stream.close();
+    });
+  }
   mounted = next;
 }
 
