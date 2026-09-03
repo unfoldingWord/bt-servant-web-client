@@ -5,6 +5,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { track } from "@/lib/analytics";
 import type {
   Attachment,
   ChatResponse,
@@ -89,6 +90,7 @@ export function useChatRuntime() {
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const sentAtRef = useRef<number | null>(null);
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
@@ -193,6 +195,13 @@ export function useChatRuntime() {
 
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
+    track("chat_response_received", {
+      response_count: data.responses.length,
+      has_audio: Boolean(data.voice_audio_url || data.voice_audio_base64),
+      has_attachments: Boolean(data.attachments?.length),
+      duration_ms: sentAtRef.current ? Date.now() - sentAtRef.current : undefined,
+    });
+    sentAtRef.current = null;
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
     const audioUrl = data.voice_audio_url
@@ -234,6 +243,10 @@ export function useChatRuntime() {
 
   const handleError = useCallback((errorMessage: string) => {
     console.error("[handleError]", errorMessage);
+    track("chat_response_failed", {
+      duration_ms: sentAtRef.current ? Date.now() - sentAtRef.current : undefined,
+    });
+    sentAtRef.current = null;
     pendingCompleteRef.current = null;
     setIsCompleting(false);
     setIsAudioRequest(false);
@@ -265,6 +278,12 @@ export function useChatRuntime() {
       );
 
       setMessages((prev) => [...prev, userMessage]);
+      // Counts and flags only — never the message text.
+      sentAtRef.current = Date.now();
+      track("chat_message_sent", {
+        message_type: audioBase64 ? "audio" : "text",
+        text_length: text.length,
+      });
       setIsLoading(true);
       setIsAudioRequest(!!audioBase64);
       isAudioRequestRef.current = !!audioBase64;

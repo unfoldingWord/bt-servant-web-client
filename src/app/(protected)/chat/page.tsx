@@ -2,14 +2,21 @@ import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { ClientThread } from "@/components/assistant-ui/client-thread";
 import { auth } from "@/auth";
 import { UserMenu } from "@/components/user-menu";
+import { TrackIntent } from "@/components/analytics/track-intent";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
-export default async function ChatPage() {
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ intent?: string }>;
+}) {
   const session = await auth();
+  const { intent } = await searchParams;
 
   return (
     <AssistantProvider>
+      <TrackIntent intent={intent} />
       <div className="flex h-dvh flex-col overscroll-none bg-gradient-to-b from-[#F5F5F0] from-70% to-[#E5E5DD] dark:from-[#2b2a27] dark:from-70% dark:to-[#201f1d]">
         <header className="flex items-center justify-between bg-transparent px-4 py-3">
           <div className="flex items-center gap-2">
