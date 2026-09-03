@@ -64,6 +64,7 @@ describe("track before initAnalytics", () => {
     const config = initMock.mock.calls[0][1];
     expect(config.before_send).toBe(scrubEvent);
     expect(config.autocapture).toBe(false);
+    expect(config.save_campaign_params).toBe(false);
   });
 });
 
@@ -112,6 +113,33 @@ describe("scrubEvent", () => {
     const out = scrubEvent(event)!;
     expect(out.properties.$snapshot_data[0].data.href).toBe(CLEAN);
     expect(JSON.stringify(out)).not.toContain("intent=");
+  });
+
+  it("drops campaign and click-id properties in every shape", async () => {
+    const { scrubEvent, isCampaignKey } = await import("./analytics");
+    const event = {
+      event: "$pageview",
+      properties: {
+        utm_campaign: "SECRET",
+        utm_new_thing: "SECRET",
+        gclid: "SECRET",
+        $set_once: { $initial_utm_campaign: "SECRET", $initial_fbclid: "S" },
+        $pathname: "/chat",
+      },
+      $set: { utm_source: "SECRET" },
+      $set_once: {
+        $initial_gclid: "SECRET",
+        $session_entry_utm_content: "SECRET",
+        $initial_pathname: "/chat",
+      },
+    } as unknown as CaptureResult;
+
+    const out = scrubEvent(event)!;
+    expect(JSON.stringify(out)).not.toContain("SECRET");
+    expect(out.properties.$pathname).toBe("/chat");
+    expect(out.$set_once?.$initial_pathname).toBe("/chat");
+    expect(isCampaignKey("$current_url")).toBe(false);
+    expect(isCampaignKey("intent")).toBe(false);
   });
 
   it("passes null and non-URL strings through untouched", async () => {

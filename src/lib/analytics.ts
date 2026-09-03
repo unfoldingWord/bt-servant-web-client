@@ -16,6 +16,10 @@ import posthog, { type CaptureResult } from "posthog-js";
  * captured URL is user-controlled text. `scrubEvent` strips the query string
  * and hash from every URL property PostHog attaches (pageviews, `$set_once`
  * initial URLs, replay page metadata) before anything leaves the browser.
+ * The SDK also lifts `utm_*` and ad click-id query values into standalone
+ * properties (`utm_campaign`, `$initial_gclid`, `$session_entry_utm_*`, …);
+ * campaign persistence is switched off and `scrubEvent` drops any such key
+ * that still appears, so no query-derived value survives in any shape.
  *
  * Identity, deliberately: we do NOT call `posthog.identify()` yet. The only
  * stable id the browser has is the raw email (`session.user.id`), and sending
@@ -50,6 +54,47 @@ const URL_PROPERTY_KEYS = [
   "$client_session_initial_url",
 ] as const;
 
+/**
+ * Query params posthog-js (pinned version) lifts into their own properties,
+ * in three shapes: bare (`utm_campaign`), `$initial_…` (person set-once) and
+ * `$session_entry_…` (session set-once). Mirrors the SDK's CAMPAIGN_PARAMS and
+ * CLICK_IDS lists; `utm_` is matched by prefix so new utm keys are covered.
+ */
+const CAMPAIGN_KEYS = new Set([
+  "gad_source",
+  "mc_cid",
+  "gclid",
+  "gclsrc",
+  "dclid",
+  "gbraid",
+  "wbraid",
+  "fbclid",
+  "msclkid",
+  "twclid",
+  "li_fat_id",
+  "igshid",
+  "ttclid",
+  "rdt_cid",
+  "epik",
+  "qclid",
+  "sccid",
+  "irclid",
+  "_kx",
+]);
+const CAMPAIGN_KEY_PREFIXES = ["$initial_", "$session_entry_"];
+
+/** True for any property key that carries a campaign/click-id query value. */
+export function isCampaignKey(key: string): boolean {
+  let bare = key;
+  for (const prefix of CAMPAIGN_KEY_PREFIXES) {
+    if (bare.startsWith(prefix)) {
+      bare = bare.slice(prefix.length);
+      break;
+    }
+  }
+  return bare.startsWith("utm_") || CAMPAIGN_KEYS.has(bare);
+}
+
 /** Drops the query string and hash. Non-URL strings come back untouched. */
 export function scrubUrl(value: string): string {
   try {
@@ -62,11 +107,14 @@ export function scrubUrl(value: string): string {
   }
 }
 
-function scrubUrlProps(props: Record<string, unknown> | undefined): void {
+function scrubProps(props: Record<string, unknown> | undefined): void {
   if (!props) return;
   for (const key of URL_PROPERTY_KEYS) {
     const value = props[key];
     if (typeof value === "string") props[key] = scrubUrl(value);
+  }
+  for (const key of Object.keys(props)) {
+    if (isCampaignKey(key)) delete props[key];
   }
 }
 
@@ -76,13 +124,13 @@ function scrubUrlProps(props: Record<string, unknown> | undefined): void {
  */
 export function scrubEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
-  scrubUrlProps(event.properties);
-  scrubUrlProps(event.$set);
-  scrubUrlProps(event.$set_once);
-  scrubUrlProps(
+  scrubProps(event.properties);
+  scrubProps(event.$set);
+  scrubProps(event.$set_once);
+  scrubProps(
     event.properties?.$set_once as Record<string, unknown> | undefined
   );
-  scrubUrlProps(event.properties?.$set as Record<string, unknown> | undefined);
+  scrubProps(event.properties?.$set as Record<string, unknown> | undefined);
 
   // Session replay: rrweb Meta events (type 4) carry the page href.
   const snapshots = event.properties?.$snapshot_data;
@@ -132,7 +180,11 @@ export function initAnalytics(): void {
     capture_pageview: true,
     capture_pageleave: true,
     person_profiles: "identified_only",
-    // Strip query strings/hashes from every captured URL (see header comment).
+    // Marketing attribution is not something this app needs, and the values
+    // are arbitrary address-bar text. Don't lift them into properties at all.
+    save_campaign_params: false,
+    // Strip query strings/hashes from every captured URL and drop any
+    // campaign-derived key the SDK still attaches (see header comment).
     before_send: scrubEvent,
   });
   initialized = true;
