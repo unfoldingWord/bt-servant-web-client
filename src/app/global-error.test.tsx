@@ -17,6 +17,7 @@ function renderGlobalError(reset: () => void = () => {}) {
 
 describe("GlobalError", () => {
   it("renders the fallback heading and a reset button", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", undefined);
     const reset = vi.fn();
     renderGlobalError(reset);
 
@@ -34,6 +35,7 @@ describe("GlobalError", () => {
   // so it renders the initial locale itself: the env pin when staging sets
   // one, the default otherwise, declared on its own <html> root.
   it("renders an <html> root whose lang is the default locale", () => {
+    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", undefined);
     // A stale value on the document root before render. React 19 treats the
     // route's <html> as a host singleton: acquiring document.documentElement
     // strips attributes it does not own and applies the element's own props.
