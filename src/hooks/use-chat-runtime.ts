@@ -5,6 +5,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { track } from "@/lib/analytics";
 import type {
   Attachment,
   ChatResponse,
@@ -14,6 +15,12 @@ import type {
 
 const FALLBACK_ERROR_MESSAGE =
   "Sorry, I encountered an error. Please try again.";
+const TIMEOUT_ERROR_MESSAGE =
+  "Sorry, that took too long and the response was cut off. Please try again.";
+
+type TimeoutReason = "hard_max_timeout" | "inactivity_timeout";
+/** Why a turn failed; the `reason` property on `chat_response_failed`. */
+type ChatFailureReason = TimeoutReason | "error";
 
 interface ChatMessage {
   id: string;
@@ -89,6 +96,7 @@ export function useChatRuntime() {
   const [isCompleting, setIsCompleting] = useState(false);
   const streamingTextRef = useRef(streamingText);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const sentAtRef = useRef<number | null>(null);
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
@@ -193,6 +201,15 @@ export function useChatRuntime() {
 
   // Define handlers before sendMessage so they can be in the dependency array
   const handleComplete = useCallback((data: ChatResponse) => {
+    track("chat_response_received", {
+      response_count: data.responses.length,
+      has_audio: Boolean(data.voice_audio_url || data.voice_audio_base64),
+      has_attachments: Boolean(data.attachments?.length),
+      duration_ms: sentAtRef.current
+        ? Date.now() - sentAtRef.current
+        : undefined,
+    });
+    sentAtRef.current = null;
     const joinedResponse = data.responses.join("\n\n");
     const currentStreaming = streamingTextRef.current;
     const audioUrl = data.voice_audio_url
@@ -232,20 +249,30 @@ export function useChatRuntime() {
     setStatusMessage(null);
   }, []);
 
-  const handleError = useCallback((errorMessage: string) => {
-    console.error("[handleError]", errorMessage);
-    pendingCompleteRef.current = null;
-    setIsCompleting(false);
-    setIsAudioRequest(false);
-    isAudioRequestRef.current = false;
-    setMessages((prev) => [
-      ...prev,
-      createMessage(`error-${Date.now()}`, "assistant", errorMessage),
-    ]);
-    setIsLoading(false);
-    setStatusMessage(null);
-    setStreamingText("");
-  }, []);
+  const handleError = useCallback(
+    (errorMessage: string, reason: ChatFailureReason = "error") => {
+      console.error("[handleError]", reason, errorMessage);
+      track("chat_response_failed", {
+        reason,
+        duration_ms: sentAtRef.current
+          ? Date.now() - sentAtRef.current
+          : undefined,
+      });
+      sentAtRef.current = null;
+      pendingCompleteRef.current = null;
+      setIsCompleting(false);
+      setIsAudioRequest(false);
+      isAudioRequestRef.current = false;
+      setMessages((prev) => [
+        ...prev,
+        createMessage(`error-${Date.now()}`, "assistant", errorMessage),
+      ]);
+      setIsLoading(false);
+      setStatusMessage(null);
+      setStreamingText("");
+    },
+    []
+  );
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
@@ -265,6 +292,12 @@ export function useChatRuntime() {
       );
 
       setMessages((prev) => [...prev, userMessage]);
+      // Counts and flags only — never the message text.
+      sentAtRef.current = Date.now();
+      track("chat_message_sent", {
+        message_type: audioBase64 ? "audio" : "text",
+        text_length: text.length,
+      });
       setIsLoading(true);
       setIsAudioRequest(!!audioBase64);
       isAudioRequestRef.current = !!audioBase64;
@@ -281,16 +314,26 @@ export function useChatRuntime() {
       let hardMaxTimer: ReturnType<typeof setTimeout> | null = null;
       let inactivityTimer: ReturnType<typeof setInterval> | null = null;
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      // Why the stream was aborted. Only our own timers set this; an abort
+      // from unmount / a new request (user cancellation) leaves it null.
+      // Tracked out-of-band rather than via `abort(reason)` because fetch
+      // rejects with the reason itself, which would no longer be an AbortError.
+      let timeoutReason: TimeoutReason | null = null;
+      let handledTerminal = false;
 
       try {
         // Hard max timeout — abort the stream after 5 min no matter what
-        hardMaxTimer = setTimeout(() => abortController.abort(), HARD_MAX_MS);
+        hardMaxTimer = setTimeout(() => {
+          timeoutReason = "hard_max_timeout";
+          abortController.abort();
+        }, HARD_MAX_MS);
 
         // Inactivity tracking — abort if no SSE events for too long
         let lastEventTime = Date.now();
         let inactivityLimit = INACTIVITY_DEFAULT_MS;
         inactivityTimer = setInterval(() => {
           if (Date.now() - lastEventTime >= inactivityLimit) {
+            timeoutReason = "inactivity_timeout";
             abortController.abort();
           }
         }, 5_000);
@@ -325,7 +368,6 @@ export function useChatRuntime() {
         reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let handledTerminal = false;
 
         setStatusMessage("Connecting...");
 
@@ -415,6 +457,14 @@ export function useChatRuntime() {
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
+          // Our own timers aborted: that is a failed response, not a
+          // cancellation, so it must show up in `chat_response_failed`.
+          if (timeoutReason && !handledTerminal) {
+            handleError(TIMEOUT_ERROR_MESSAGE, timeoutReason);
+            return;
+          }
+          // Unmount / superseded request: reset silently.
+          sentAtRef.current = null;
           pendingCompleteRef.current = null;
           setIsCompleting(false);
           setIsLoading(false);

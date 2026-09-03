@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
-import { CONNECTING, CONNECTION_LOST, FALLBACK_ERROR } from "@/test/copy";
+import {
+  CONNECTING,
+  CONNECTION_LOST,
+  FALLBACK_ERROR,
+  TIMEOUT_ERROR,
+} from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import {
@@ -12,6 +17,17 @@ import {
   trackMount,
 } from "@/test/timers";
 import { useChatRuntime } from "./use-chat-runtime";
+
+// Analytics seam. The hook only ever calls `track`; assert on the calls
+// rather than on PostHog (which is never initialized in tests anyway).
+const { trackMock } = vi.hoisted(() => ({ trackMock: vi.fn() }));
+vi.mock("@/lib/analytics", () => ({ track: trackMock }));
+
+// `restoreMocks` only touches vi.spyOn spies; a hoisted vi.fn keeps its calls.
+beforeEach(() => trackMock.mockClear());
+
+const failedEvents = () =>
+  trackMock.mock.calls.filter(([name]) => name === "chat_response_failed");
 
 // The literal the hook stores for a voice turn with no transcript. Kept local
 // on purpose: the test's point is the literal, not a shared constant.
@@ -231,12 +247,14 @@ describe("useChatRuntime — voice send", () => {
 // Timeouts. The hook polls every 5s and aborts the fetch when no SSE event
 // has arrived within the inactivity limit (120s by default, 300s once an
 // audio/TTS status is seen), and unconditionally at the 300s hard maximum.
-// On abort the browser errors the body stream with AbortError; the hook
-// treats that as a silent reset (no chat message).
+// On abort the browser errors the body stream with AbortError. When one of
+// the hook's own timers caused it, that is a failed turn: the user sees a
+// timeout message and `chat_response_failed` records the reason. An abort
+// from unmount is a cancellation and stays silent.
 // ---------------------------------------------------------------------------
 
 describe("useChatRuntime — timeouts", () => {
-  it("aborts a text request after ~120s without events and resets state silently", async () => {
+  it("aborts a text request after ~120s without events and reports an inactivity failure", async () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, { type: "status", message: "Thinking" });
@@ -246,15 +264,23 @@ describe("useChatRuntime — timeouts", () => {
     await advance(115_000);
     expect(stream.signal?.aborted).toBe(false);
     expect(result.current.isLoading).toBe(true);
+    expect(failedEvents()).toHaveLength(0);
 
     // Past the limit (next 5s poll after 120s).
     await advance(10_000);
     expect(stream.signal?.aborted).toBe(true);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.statusMessage).toBeNull();
-    // Silent reset: only the user message remains, no error message appended.
-    expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].role).toBe("user");
+    // The user sees a timeout message, not a silent reset.
+    expect(result.current.messages).toHaveLength(2);
+    expect(lastMessage(result).role).toBe("assistant");
+    expect(textOf(lastMessage(result))).toBe(TIMEOUT_ERROR);
+    // ...and the failure metric records why.
+    expect(failedEvents()).toHaveLength(1);
+    expect(failedEvents()[0][1]).toMatchObject({
+      reason: "inactivity_timeout",
+    });
+    expect(failedEvents()[0][1].duration_ms).toBeGreaterThanOrEqual(120_000);
   });
 
   it("an audio-generation status extends the inactivity window past the 120s default", async () => {
@@ -302,9 +328,32 @@ describe("useChatRuntime — timeouts", () => {
     expect(stream.signal?.aborted).toBe(false);
     expect(result.current.isLoading).toBe(true);
 
+    expect(failedEvents()).toHaveLength(0);
+
     await advance(2_000); // t ≈ 301s
     expect(stream.signal?.aborted).toBe(true);
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages).toHaveLength(2);
+    expect(textOf(lastMessage(result))).toBe(TIMEOUT_ERROR);
+    expect(failedEvents()).toHaveLength(1);
+    expect(failedEvents()[0][1]).toMatchObject({ reason: "hard_max_timeout" });
+    expect(failedEvents()[0][1].duration_ms).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("an unmount mid-stream aborts silently and is not counted as a failure", async () => {
+    const { result, stream } = await startStream();
+    expect(result.current.isLoading).toBe(true);
+
+    // teardownMounted unmounts inside act() under the fake clock and drains
+    // the abort → catch → finally chain, exactly as the afterEach would.
+    await teardownMounted();
+
+    expect(stream.signal?.aborted).toBe(true);
+    expect(failedEvents()).toHaveLength(0);
+    expect(
+      trackMock.mock.calls
+        .map(([name]) => name)
+        .filter((n) => n !== "chat_message_sent")
+    ).toEqual([]);
   });
 });

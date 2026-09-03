@@ -22,6 +22,8 @@ export const CONNECTING = "Connecting...";
 export const CONNECTION_LOST = "Connection lost. Please try again.";
 export const FALLBACK_ERROR =
   "Sorry, I encountered an error. Please try again.";
+export const TIMEOUT_ERROR =
+  "Sorry, that took too long and the response was cut off. Please try again.";
 
 export const GLOBAL_ERROR_HEADING = "Something went wrong.";
 export const GLOBAL_ERROR_RETRY = "Try again";
