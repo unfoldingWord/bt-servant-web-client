@@ -12,7 +12,7 @@ import type { Dictionary } from "./en";
  */
 export const ptBR = {
   // Chat thread
-  "thread.welcome": "Olá, eu sou o BT Servant. Como posso te servir hoje?",
+  "thread.welcome": "Olá, sou o BT Servant. Como posso te servir hoje?",
   "thread.disclaimer": "O BT Servant pode cometer erros. Confira as respostas.",
   "thread.thinking": "Pensando...",
   "thread.scrollToBottom": "Rolar até o fim",
