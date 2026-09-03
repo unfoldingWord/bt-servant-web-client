@@ -6,6 +6,8 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useT } from "@/i18n/locale-provider";
+import type { MessageKey } from "@/i18n/en";
 import { APP_VERSION } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import {
@@ -142,6 +144,7 @@ const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
   visible,
   onClick,
 }) => {
+  const t = useT();
   if (!visible) return null;
 
   return (
@@ -149,7 +152,7 @@ const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
       type="button"
       onClick={onClick}
       className="absolute bottom-full left-1/2 mb-3 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-orange-500 opacity-50 shadow-lg transition-opacity hover:opacity-65"
-      aria-label="Scroll to bottom"
+      aria-label={t("thread.scrollToBottom")}
     >
       <FontAwesomeIcon icon={faArrowDown} className="text-sm text-white" />
     </button>
@@ -159,6 +162,7 @@ const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
 const LoadingIndicator: FC = () => {
   const { isLoading, statusMessage, streamingText, isAudioRequest } =
     useChatContext();
+  const t = useT();
 
   // Show loading indicator when loading and either:
   // - no streaming text yet (text requests), or
@@ -170,7 +174,7 @@ const LoadingIndicator: FC = () => {
       <div className="flex items-center gap-2 text-sm text-[#6b6a68] dark:text-[#9a9893]">
         <Loader2Icon className="size-4 animate-spin" />
         <span className="font-sans italic">
-          {statusMessage || "Thinking..."}
+          {statusMessage || t("thread.thinking")}
         </span>
       </div>
     </div>
@@ -233,28 +237,37 @@ export const Thread: FC = () => {
   );
 };
 
-const SUGGESTIONS = [
+// `label` is shown on the chip; `prompt` is what gets sent to the model. They
+// are separate dictionary keys so each locale can carry an idiomatic prompt
+// rather than a translation of the label.
+const SUGGESTIONS: ReadonlyArray<{
+  labelKey: MessageKey;
+  promptKey: MessageKey;
+  icon: typeof faLanguage;
+  iconColor: string;
+}> = [
   {
-    label: "Help me translate John 3:16",
-    prompt: "Help me translate John 3:16",
+    labelKey: "thread.suggestion.translate.label",
+    promptKey: "thread.suggestion.translate.prompt",
     icon: faLanguage,
     iconColor: "#ae5630", // orange accent
   },
   {
-    label: "Summarize Gen 1:1-5",
-    prompt: "Can you summarize Genesis 1:1-5?",
+    labelKey: "thread.suggestion.summarize.label",
+    promptKey: "thread.suggestion.summarize.prompt",
     icon: faListUl,
     iconColor: "#7d6b5a", // warm brown
   },
   {
-    label: "Tell me about Amos",
-    prompt: "Tell me about Amos in the Bible",
+    labelKey: "thread.suggestion.amos.label",
+    promptKey: "thread.suggestion.amos.prompt",
     icon: faCircleInfo,
     iconColor: "#5a7d6b", // sage green
   },
 ];
 
 const ThreadWelcome: FC = () => {
+  const t = useT();
   return (
     <div className="flex flex-1 flex-col">
       {/* Centered content area */}
@@ -263,7 +276,7 @@ const ThreadWelcome: FC = () => {
           {/* Welcome message */}
           <div className="mb-8">
             <p className="text-center text-2xl text-[#1a1a18] sm:text-3xl dark:text-[#eee]">
-              Hello, I&apos;m BT Servant. How can I serve you today?
+              {t("thread.welcome")}
             </p>
           </div>
 
@@ -276,12 +289,12 @@ const ThreadWelcome: FC = () => {
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             {SUGGESTIONS.map((suggestion, index) => (
               <div
-                key={suggestion.prompt}
+                key={suggestion.promptKey}
                 className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-200"
                 style={{ animationDelay: `${100 + index * 50}ms` }}
               >
                 <ThreadPrimitive.Suggestion
-                  prompt={suggestion.prompt}
+                  prompt={t(suggestion.promptKey)}
                   send
                   asChild
                 >
@@ -295,7 +308,7 @@ const ThreadWelcome: FC = () => {
                       style={{ color: suggestion.iconColor }}
                     />
                     <span className="text-[#1a1a18] dark:text-[#eee]">
-                      {suggestion.label}
+                      {t(suggestion.labelKey)}
                     </span>
                   </Button>
                 </ThreadPrimitive.Suggestion>
@@ -319,6 +332,7 @@ const Composer: FC = () => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const { sendMessage, isLoading } = useChatContext();
   const voiceRecorder = useVoiceRecorder();
+  const t = useT();
 
   const handleVoiceComplete = async (audioBase64: string, format: string) => {
     setShowVoiceRecorder(false);
@@ -343,7 +357,7 @@ const Composer: FC = () => {
           <div className="relative min-w-0 flex-1">
             <div className="max-h-96 w-full overflow-y-auto">
               <ComposerPrimitive.Input
-                placeholder="How can I help you today?"
+                placeholder={t("composer.placeholder")}
                 className="block min-h-8 w-full resize-none bg-transparent font-sans text-lg text-[#1a1a18] outline-none placeholder:text-lg placeholder:text-[#9a9893] dark:text-[#eee] dark:placeholder:text-[#9a9893]"
               />
             </div>
@@ -356,7 +370,7 @@ const Composer: FC = () => {
                 onClick={() => setShowVoiceRecorder(true)}
                 disabled={isLoading}
                 className="flex h-8 min-w-8 items-center justify-center overflow-hidden rounded-lg border border-[#00000015] bg-transparent px-1.5 text-[#6b6a68] transition-all hover:bg-[#f5f5f0] hover:text-[#1a1a18] active:scale-[0.98] disabled:opacity-50 dark:border-[#6c6a6040] dark:text-[#9a9893] dark:hover:bg-[#393937] dark:hover:text-[#eee]"
-                aria-label="Voice message"
+                aria-label={t("composer.voiceButton")}
               >
                 <MicIcon width={16} height={16} />
               </button>
@@ -386,6 +400,9 @@ const ChatMessage: FC = () => {
 };
 
 const UserMessage: FC = () => {
+  const t = useT();
+  // "[Voice message]" is a persisted data sentinel written by
+  // use-chat-runtime.ts, not copy — it is never translated.
   const isVoiceMessage = useAssistantState(({ message }) => {
     const firstPart = message.content[0];
     return firstPart?.type === "text" && firstPart.text === "[Voice message]";
@@ -398,7 +415,7 @@ const UserMessage: FC = () => {
           {isVoiceMessage ? (
             <span className="flex items-center gap-1.5 font-sans text-[#6b6a68] italic dark:text-[#9a9893]">
               <MicIcon className="size-4" />
-              Voice message
+              {t("message.voiceMessage")}
             </span>
           ) : (
             <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
@@ -517,6 +534,7 @@ const AnimatedText: FC<{
 
 const AssistantMessage: FC = () => {
   const { finalizeComplete, isCompleting, isLoading } = useChatContext();
+  const t = useT();
   const audioBase64 = useAssistantState(
     ({ message }) => message.metadata?.custom?.audioBase64 as string | undefined
   );
@@ -558,7 +576,9 @@ const AssistantMessage: FC = () => {
                 onClick={() => setShowTranscript((prev) => !prev)}
                 className="font-sans text-[0.75rem] text-[#8a8985] transition-colors hover:text-[#6b6a68] dark:text-[#9a9893] dark:hover:text-[#b8b5a9]"
               >
-                {showTranscript ? "Hide transcript" : "Show transcript"}
+                {showTranscript
+                  ? t("message.hideTranscript")
+                  : t("message.showTranscript")}
               </button>
               {showTranscript && (
                 <div className="prose prose-neutral dark:prose-invert mt-2 max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
@@ -598,7 +618,7 @@ const AssistantMessage: FC = () => {
               </div>
               <AssistantIf condition={({ message }) => message.isLast}>
                 <p className="mt-2 w-full text-right font-sans text-[0.65rem] leading-[0.85rem] text-[#8a8985] opacity-90 sm:text-[0.75rem] dark:text-[#b8b5a9]">
-                  BT Servant can make mistakes. Please double-check responses.
+                  {t("thread.disclaimer")}
                 </p>
               </AssistantIf>
             </ActionBarPrimitive.Root>
@@ -609,7 +629,7 @@ const AssistantMessage: FC = () => {
       ) : isLast && !isLoading ? (
         <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
           <p className="text-[#8a8985] italic dark:text-[#b8b5a9]">
-            Sorry, I couldn&apos;t deliver a response. Please try again.
+            {t("message.deliveryFailed")}
           </p>
         </div>
       ) : null}

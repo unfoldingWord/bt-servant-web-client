@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useT } from "@/i18n/locale-provider";
 import { MicIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect } from "react";
 
@@ -18,6 +19,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
     cancelRecording,
     recordingDuration,
   } = useVoiceRecorder();
+  const t = useT();
 
   // Auto-start recording when component mounts
   useEffect(() => {
@@ -66,7 +68,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
           )}
         </div>
         <span className="text-sm font-medium">
-          {isRecording ? "Recording..." : "Starting..."}
+          {isRecording ? t("recorder.recording") : t("recorder.starting")}
         </span>
         <span className="text-muted-foreground text-sm">
           {formatDuration(recordingDuration)}

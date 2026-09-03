@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssistantProvider } from "@/components/providers/assistant-provider";
+import { LocaleProvider } from "@/i18n/locale-provider";
 import type { ChatHistoryEntry } from "@/types/engine";
 import { consoleSpy } from "@/test/console";
 import {
@@ -66,9 +67,11 @@ async function renderThread({
     },
   });
   const { unmount } = render(
-    <AssistantProvider>
-      <Thread />
-    </AssistantProvider>
+    <LocaleProvider>
+      <AssistantProvider>
+        <Thread />
+      </AssistantProvider>
+    </LocaleProvider>
   );
   trackMount({ unmount, streams: harness.streams });
   // The first paint is always the empty state (messages start as []). Wait

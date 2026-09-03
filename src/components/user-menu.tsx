@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useT } from "@/i18n/locale-provider";
 
 interface UserMenuProps {
   userInitial: string;
@@ -16,6 +17,7 @@ interface UserMenuProps {
 
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
+  const t = useT();
 
   useEffect(() => {
     getCsrfToken().then((token) => setCsrfToken(token || ""));
@@ -26,7 +28,7 @@ export function UserMenu({ userInitial }: UserMenuProps) {
       <DropdownMenuTrigger asChild>
         <button
           className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ae5630] text-sm font-semibold text-white transition-all hover:bg-[#c4633a] focus:ring-2 focus:ring-[#ae5630] focus:ring-offset-2 focus:outline-none"
-          aria-label="User menu"
+          aria-label={t("userMenu.aria")}
         >
           {userInitial}
         </button>
@@ -45,9 +47,11 @@ export function UserMenu({ userInitial }: UserMenuProps) {
             <button type="submit" className="w-full">
               <LogOutIcon className="mr-3 h-4 w-4 text-[#6b6a68] dark:text-[#9a9893]" />
               <div className="flex flex-col items-start">
-                <span className="text-sm font-semibold">Sign out</span>
+                <span className="text-sm font-semibold">
+                  {t("userMenu.signOut")}
+                </span>
                 <span className="text-xs text-[#6b6a68] dark:text-[#9a9893]">
-                  End your current session
+                  {t("userMenu.signOutDescription")}
                 </span>
               </div>
             </button>

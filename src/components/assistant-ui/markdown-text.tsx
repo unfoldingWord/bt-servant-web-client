@@ -13,6 +13,7 @@ import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { useT } from "@/i18n/locale-provider";
 import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export const MarkdownText = memo(MarkdownTextImpl);
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const t = useT();
   const onCopy = () => {
     if (!code || isCopied) return;
     copyToClipboard(code);
@@ -38,7 +40,7 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   return (
     <div className="bg-muted-foreground/15 text-foreground dark:bg-muted-foreground/20 mt-4 flex items-center justify-between gap-4 rounded-t-lg px-4 py-2 text-sm font-semibold">
       <span className="lowercase [&>span]:text-xs">{language}</span>
-      <TooltipIconButton tooltip="Copy" onClick={onCopy}>
+      <TooltipIconButton tooltip={t("message.copyCode")} onClick={onCopy}>
         {!isCopied && <CopyIcon />}
         {isCopied && <CheckIcon />}
       </TooltipIconButton>

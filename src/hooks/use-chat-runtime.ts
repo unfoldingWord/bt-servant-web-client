@@ -6,17 +6,14 @@ import {
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { track } from "@/lib/analytics";
+import { useLocale } from "@/i18n/locale-provider";
+import { t } from "@/i18n/t";
 import type {
   Attachment,
   ChatResponse,
   ChatHistoryResponse,
   SSEEvent,
 } from "@/types/engine";
-
-const FALLBACK_ERROR_MESSAGE =
-  "Sorry, I encountered an error. Please try again.";
-const TIMEOUT_ERROR_MESSAGE =
-  "Sorry, that took too long and the response was cut off. Please try again.";
 
 type TimeoutReason = "hard_max_timeout" | "inactivity_timeout";
 /** Why a turn failed; the `reason` property on `chat_response_failed`. */
@@ -100,6 +97,15 @@ export function useChatRuntime() {
   useEffect(() => {
     streamingTextRef.current = streamingText;
   }, [streamingText]);
+
+  // Interface locale for the runtime's own user-facing strings (status and
+  // error copy). Read through a ref so the stable callbacks below do not
+  // re-create (and re-run their effects) when the locale changes.
+  const { locale } = useLocale();
+  const localeRef = useRef(locale);
+  useEffect(() => {
+    localeRef.current = locale;
+  }, [locale]);
 
   // Abort streaming on unmount
   useEffect(() => {
@@ -284,7 +290,8 @@ export function useChatRuntime() {
         setMessages((prev) => [...prev, pending.message]);
       }
 
-      // Add user message
+      // Add user message. "[Voice message]" is a data sentinel (persisted in
+      // history, compared by equality in thread.tsx) — never localize it.
       const userMessage = createMessage(
         `user-${Date.now()}`,
         "user",
@@ -369,7 +376,7 @@ export function useChatRuntime() {
         const decoder = new TextDecoder();
         let buffer = "";
 
-        setStatusMessage("Connecting...");
+        setStatusMessage(t(localeRef.current, "status.connecting"));
 
         while (true) {
           const { done, value } = await reader.read();
@@ -434,7 +441,7 @@ export function useChatRuntime() {
                 // Log raw, show canned fallback — never render the worker's
                 // error string (may be a raw upstream API body) in the chat
                 console.error("[sse] error event:", parsed.error);
-                handleError(FALLBACK_ERROR_MESSAGE);
+                handleError(t(localeRef.current, "error.generic"));
                 handledTerminal = true;
               } else if (parsed.type === "keepalive") {
                 // no-op — lastEventTime already updated above
@@ -453,14 +460,14 @@ export function useChatRuntime() {
         // Stream ended — ensure we got a terminal event
         if (!handledTerminal) {
           console.warn("[sse] stream ended without terminal event");
-          handleError("Connection lost. Please try again.");
+          handleError(t(localeRef.current, "error.connectionLost"));
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           // Our own timers aborted: that is a failed response, not a
           // cancellation, so it must show up in `chat_response_failed`.
           if (timeoutReason && !handledTerminal) {
-            handleError(TIMEOUT_ERROR_MESSAGE, timeoutReason);
+            handleError(t(localeRef.current, "error.timeout"), timeoutReason);
             return;
           }
           // Unmount / superseded request: reset silently.
@@ -475,7 +482,7 @@ export function useChatRuntime() {
           return;
         }
         console.error("[sendMessage] error", error);
-        handleError(FALLBACK_ERROR_MESSAGE);
+        handleError(t(localeRef.current, "error.generic"));
       } finally {
         if (hardMaxTimer) clearTimeout(hardMaxTimer);
         if (inactivityTimer) clearInterval(inactivityTimer);

@@ -16,6 +16,7 @@ import {
   teardownMounted,
   trackMount,
 } from "@/test/timers";
+import { LocaleProvider } from "@/i18n/locale-provider";
 import { useChatRuntime } from "./use-chat-runtime";
 
 // Analytics seam. The hook only ever calls `track`; assert on the calls
@@ -56,7 +57,9 @@ afterEach(teardownMounted);
  */
 async function mountRuntime(opts?: FakeBffOptions) {
   const harness = installFakeBff(opts);
-  const { result, unmount } = renderHook(() => useChatRuntime());
+  const { result, unmount } = renderHook(() => useChatRuntime(), {
+    wrapper: LocaleProvider,
+  });
   trackMount({ unmount, streams: harness.streams });
   await harness.historyLoaded();
   return { harness, result };
