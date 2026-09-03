@@ -62,6 +62,8 @@ jobs:
           # PostHog is disabled when unset; safe to deploy before the secret exists.
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
+          # Session replay is production-only. Staging's workflow deliberately does not set this.
+          NEXT_PUBLIC_POSTHOG_SESSION_REPLAY: "true"
 
       - name: Deploy to Cloudflare Workers
         run: npx opennextjs-cloudflare deploy

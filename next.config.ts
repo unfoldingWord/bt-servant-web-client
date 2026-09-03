@@ -12,6 +12,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "",
     NEXT_PUBLIC_POSTHOG_HOST:
       process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
+    // Session replay is opt-in per build. Only the production deploy sets it.
+    NEXT_PUBLIC_POSTHOG_SESSION_REPLAY:
+      process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY ?? "false",
   },
 };
 
