@@ -498,8 +498,11 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       expect(harness.preferencePuts).toEqual([]);
       expect(document.documentElement.lang).toBe(locale);
 
-      // The reply lands and finalizes; the same open menu unlocks.
+      // A chunk streams, then the reply completes and animates to the end
+      // (the completing phase, where isLoading is still true and
+      // isCompleting flips); only then does the same open menu unlock.
       const stream = harness.streams[0];
+      stream.push({ type: "progress", text: ENGINE_REPLY.slice(0, 6) });
       stream.push(completeEvent([ENGINE_REPLY]));
       stream.close();
       await waitFor(

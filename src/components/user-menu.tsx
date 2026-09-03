@@ -31,8 +31,10 @@ export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
   const { locale, choose } = useLocalePreference();
   // Never flip the locale under an animating reply: the picker is locked
-  // while a reply is in flight and says so.
-  const { isLoading: languageLocked } = useChatContext();
+  // while a reply is in flight (the same formula as the preference owner's
+  // `hold`) and says so.
+  const { isLoading, isCompleting } = useChatContext();
+  const languageLocked = isLoading || isCompleting;
   const t = useT();
 
   useEffect(() => {

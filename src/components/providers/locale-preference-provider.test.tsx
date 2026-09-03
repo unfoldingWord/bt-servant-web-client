@@ -53,6 +53,7 @@ function mount({
   hold = false,
   strict = false,
   harness: reused,
+  onHintChange,
   ...bff
 }: {
   navigator?: string;
@@ -64,13 +65,17 @@ function mount({
   strict?: boolean;
   /** Reuse a fake BFF from an earlier mount instead of installing a new one. */
   harness?: ReturnType<typeof installFakeBff>;
+  onHintChange?: (hint: string | undefined) => void;
 } & FakeBffOptions = {}) {
   const harness = reused ?? installFakeBff(bff);
   if (!reused) stubNavigatorLanguage(navigator);
   const result = { current: null as unknown as Preference };
   const tree = (h: boolean) => (
     <LocaleProvider>
-      <LocalePreferenceProvider hold={h}>
+      <LocalePreferenceProvider
+        hold={h}
+        onResponseLanguageHintChange={onHintChange}
+      >
         <Probe onValue={(v) => (result.current = v)} />
       </LocalePreferenceProvider>
     </LocaleProvider>
@@ -231,6 +236,7 @@ describe("LocalePreferenceProvider — first visit seed", () => {
     stubNavigatorLanguage("en-US");
     const { result, unmount } = mount({ harness: first.harness });
     expect(result.current.locale).toBe("en");
+    // The remount's GET is the second GET body read (PUTs are not counted).
     await preferencesRead(first.harness, 2);
 
     expect(first.harness.preferencePuts).toHaveLength(1);
@@ -256,6 +262,41 @@ describe("LocalePreferenceProvider — first visit seed", () => {
 
     // Only the GET went out: an aborted mount never writes or logs.
     expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
+  // Regression: a slow seed PUT must never land after a pick and store the
+  // browser code. The seed is on the same write chain as picks.
+  it("a pick made while the seed PUT is in flight is written after it, so the last write is the pick", async () => {
+    const { preferencePutResponse, answerFirst } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "pt-BR",
+      preferencePutResponse,
+    });
+    await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+    await act(async () => {});
+    expect(result.current.responseLanguageHint).toBe("pt");
+
+    let pick!: Promise<void>;
+    act(() => {
+      pick = result.current.choose("en");
+    });
+    await act(async () => {});
+    // The pick's PUT waits for the seed to settle.
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+    ]);
+    expect(result.current.responseLanguageHint).toBe("en");
+
+    await answerFirst();
+    await pick;
+    await act(async () => {});
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("en") },
+    ]);
+    expect(result.current.locale).toBe("en");
     expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
@@ -361,6 +402,34 @@ describe("LocalePreferenceProvider — failures keep the browser locale", () => 
     ]);
     expect(result.current.locale).toBe("pt-BR");
     expect(result.current.ready).toBe(true);
+  });
+
+  // Regression: a rejected step must not stall the chain. Without a
+  // rejection handler on `writeChainRef`, the failed seed would leave a
+  // rejected promise at the head and every later pick would silently never
+  // write.
+  it("a failed seed PUT does not stall the chain: the next pick still writes and applies", async () => {
+    let puts = 0;
+    const { harness, result } = mount({
+      navigator: "pt-BR",
+      preferencePutResponse: () => (++puts === 1 ? failed() : jsonResponse({})),
+    });
+
+    await waitFor(
+      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
+      WAIT
+    );
+    consoleSpy.error.mockClear();
+
+    await act(() => result.current.choose("en"));
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("en") },
+    ]);
+    expect(result.current.locale).toBe("en");
+    expect(result.current.responseLanguageHint).toBe("en");
+    expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 });
 
@@ -554,6 +623,7 @@ describe("LocalePreferenceProvider — choose()", () => {
     });
     await preferencesRead(harness);
 
+    expect(result.current.responseLanguageHint).toBe("en");
     await act(() => result.current.choose("pt-BR"));
 
     expect(harness.preferencePuts).toHaveLength(1);
@@ -563,6 +633,9 @@ describe("LocalePreferenceProvider — choose()", () => {
     );
     expect(result.current.locale).toBe("en");
     expect(document.documentElement.lang).toBe("en");
+    // The hint snaps back with the chrome: the next send must not be hinted
+    // with a language the worker never stored.
+    expect(result.current.responseLanguageHint).toBe("en");
   });
 });
 
@@ -627,6 +700,42 @@ describe("LocalePreferenceProvider — responseLanguageHint", () => {
 
     expect(result.current.responseLanguageHint).toBe("pt");
     expect(result.current.locale).toBe("en"); // the PUT has not landed
+  });
+});
+
+describe("LocalePreferenceProvider — onResponseLanguageHintChange", () => {
+  it("reports undefined during the GET, the stored code once loaded, then the chosen code", async () => {
+    const onHintChange = vi.fn<(hint: string | undefined) => void>();
+    const { route, answer } = deferredGet();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      extraRoutes: route,
+      onHintChange,
+    });
+    await waitFor(
+      () => expect(harness.fetchMock).toHaveBeenCalledTimes(1),
+      WAIT
+    );
+    expect(onHintChange.mock.calls).toEqual([[undefined]]);
+
+    await answer({ response_language: "pt" });
+    expect(onHintChange.mock.lastCall).toEqual(["pt"]);
+
+    await act(() => result.current.choose("en"));
+    expect(onHintChange.mock.lastCall).toEqual(["en"]);
+  });
+
+  it("reports the browser-derived code once an empty GET has come back", async () => {
+    const onHintChange = vi.fn<(hint: string | undefined) => void>();
+    const { harness } = mount({ navigator: "pt-BR", onHintChange });
+
+    await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+    await act(async () => {});
+
+    expect(onHintChange.mock.calls).toEqual([
+      [undefined],
+      [toResponseLanguage("pt-BR")],
+    ]);
   });
 });
 

@@ -42,19 +42,21 @@ interface LocalePreferenceContextValue {
    * one this client knows (absent = the worker uses what it has stored), the
    * browser-derived code once an empty GET has come back (the seed PUT may
    * still be pending), the stored code after a stored GET, the chosen code
-   * from the moment `choose` is called. Never the chrome's fallback locale.
+   * from the moment `choose` is called. A pick whose write fails restores
+   * the hint it replaced. Never the chrome's fallback locale.
    */
   responseLanguageHint: string | undefined;
   /**
    * Persists `locale` as the user's `response_language`, then applies it to
    * the chrome (through the same hold as the load: never under an animating
-   * reply). Writes are serialized: no PUT starts before the previous one has
-   * settled, and a pick that is no longer the latest by the time its turn
-   * comes is skipped, so the last PUT sent is always the latest pick and the
-   * worker cannot end up storing an older one. A load still in flight is
+   * reply). Every write shares one chain, the first-visit seed included:
+   * no PUT starts before the previous one has settled, and a seed or pick
+   * that is no longer the latest intent by the time its turn comes is
+   * skipped, so the last PUT sent is always the latest pick and the worker
+   * cannot end up storing an older one. A load still in flight is
    * superseded. Resolves when this pick's write has settled or been
-   * skipped; never rejects (a failed write is logged with context and the
-   * current locale stays).
+   * skipped; never rejects (a failed write is logged with context, and the
+   * current locale and hint both stay).
    */
   choose: (locale: Locale) => Promise<void>;
 }
@@ -102,8 +104,10 @@ export async function saveLocalePreference(
  * chrome only); nothing stored means a first visit on any device, and the
  * browser's locale (`getClientLocale()`, read at PUT time: during hydration
  * React state may still hold the server snapshot) is seeded with one `PUT`
- * so it follows the user. Only the mount whose `GET` came back empty writes;
- * an aborted mount (unmount, StrictMode's extra effect run) never does.
+ * so it follows the user, queued on the same write chain as picks. Only
+ * the mount whose `GET` came back empty writes; an aborted mount (unmount,
+ * StrictMode's extra effect run) never does, and neither does a seed the
+ * user's pick has already overtaken.
  * Failures are logged with `console.error` and context and leave the browser
  * locale in place.
  *
@@ -131,17 +135,31 @@ export function LocalePreferenceProvider({
   const [responseLanguageHint, setResponseLanguageHint] = useState<
     string | undefined
   >(undefined);
+  // The hint as last published, readable from callbacks (a failed pick
+  // restores the hint it replaced). Written only through publishHint.
+  const hintRef = useRef<string | undefined>(undefined);
+  const publishHint = useCallback((hint: string | undefined) => {
+    hintRef.current = hint;
+    setResponseLanguageHint(hint);
+  }, []);
   // What the load or a pick delivered and has not applied yet (held, or one
   // render away from applying).
   const [loaded, setLoaded] = useState<Locale | null>(null);
   // The mount-time load, so `choose` can cancel it.
   const loadRef = useRef<AbortController | null>(null);
-  // Picks are numbered so only the latest one writes and applies; their
-  // PUTs run one after another on this chain. Aborting a fetch would not
-  // recall a PUT the server has already received, so serialization, not
-  // cancellation, is what keeps storage at the latest pick.
+  // Picks are numbered so only the latest one writes and applies. Every
+  // PUT (the first-visit seed included) runs one after another on this
+  // chain. Aborting a fetch would not recall a PUT the server has already
+  // received, so serialization, not cancellation, is what keeps storage at
+  // the latest pick.
   const chooseGenerationRef = useRef(0);
   const writeChainRef = useRef<Promise<void>>(Promise.resolve());
+  /** Appends `step` to the chain; a rejected step never stalls the next one. */
+  const enqueueWrite = useCallback((step: () => Promise<void>) => {
+    const next = writeChainRef.current.then(step, step);
+    writeChainRef.current = next;
+    return next;
+  }, []);
 
   useEffect(() => {
     onResponseLanguageHintChange?.(responseLanguageHint);
@@ -163,15 +181,27 @@ export function LocalePreferenceProvider({
           // Hint only with a code this client knows; an unsupported stored
           // code falls back to the default locale for the chrome alone, and
           // the worker keeps replying in what it has stored.
-          setResponseLanguageHint(
+          publishHint(
             toResponseLanguage(preferred) === stored.response_language
               ? stored.response_language
               : undefined
           );
         } else {
           const browser = getClientLocale();
-          setResponseLanguageHint(toResponseLanguage(browser));
-          await saveLocalePreference(browser, signal);
+          publishHint(toResponseLanguage(browser));
+          // The seed joins the write chain so a slow seed can never land
+          // after a pick and store the browser code over the user's intent.
+          const generation = chooseGenerationRef.current;
+          await enqueueWrite(async () => {
+            // A pick that arrived before this step's turn made it moot.
+            if (generation !== chooseGenerationRef.current) return;
+            if (signal.aborted) return;
+            // Deliberately not `signal`: `choose` aborts this controller,
+            // and cancelling a PUT the server may already be processing
+            // would release the chain while that write is still in the
+            // air, letting the seed land after the pick after all.
+            await saveLocalePreference(browser);
+          });
         }
       } catch (error) {
         // Superseded by `choose` or unmounted mid-flight: nothing to report.
@@ -186,7 +216,7 @@ export function LocalePreferenceProvider({
     })();
 
     return () => controller.abort();
-  }, []);
+  }, [enqueueWrite, publishHint]);
 
   // Apply the loaded or chosen value once nothing is animating.
   useEffect(() => {
@@ -195,37 +225,40 @@ export function LocalePreferenceProvider({
     setLocale(loaded);
   }, [loaded, hold, setLocale]);
 
-  const choose = useCallback((next: Locale) => {
-    // The user's pick supersedes a load still in flight or held: however
-    // late its GET resolves, it must not revert what the user chose.
-    loadRef.current?.abort();
-    loadRef.current = null;
-    const generation = ++chooseGenerationRef.current;
-    setLoaded(null);
-    setReady(true);
-    setResponseLanguageHint(toResponseLanguage(next));
+  const choose = useCallback(
+    (next: Locale) => {
+      // The user's pick supersedes a load still in flight or held: however
+      // late its GET resolves, it must not revert what the user chose.
+      loadRef.current?.abort();
+      loadRef.current = null;
+      const generation = ++chooseGenerationRef.current;
+      setLoaded(null);
+      setReady(true);
+      const previousHint = hintRef.current;
+      publishHint(toResponseLanguage(next));
 
-    const isLatest = () => generation === chooseGenerationRef.current;
-    const write = async () => {
-      // Coalesce: a newer pick arrived while an earlier write was in flight.
-      if (!isLatest()) return;
-      try {
-        await saveLocalePreference(next);
-        if (!isLatest()) return; // its own step will write and apply
-        // Through the apply effect, so a pick landing mid-reply waits too.
-        setLoaded(next);
-      } catch (error) {
+      const isLatest = () => generation === chooseGenerationRef.current;
+      return enqueueWrite(async () => {
+        // Coalesce: a newer pick arrived while an earlier write was in flight.
         if (!isLatest()) return;
-        console.error(
-          "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
-          { locale: next, error }
-        );
-      }
-    };
-    const step = writeChainRef.current.then(write);
-    writeChainRef.current = step;
-    return step;
-  }, []);
+        try {
+          await saveLocalePreference(next);
+          if (!isLatest()) return; // its own step will write and apply
+          // Through the apply effect, so a pick landing mid-reply waits too.
+          setLoaded(next);
+        } catch (error) {
+          if (!isLatest()) return;
+          // The chrome snaps back (the radio is controlled); so does the hint.
+          publishHint(previousHint);
+          console.error(
+            "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
+            { locale: next, error }
+          );
+        }
+      });
+    },
+    [enqueueWrite, publishHint]
+  );
 
   const value = useMemo<LocalePreferenceContextValue>(
     () => ({ locale, ready, responseLanguageHint, choose }),

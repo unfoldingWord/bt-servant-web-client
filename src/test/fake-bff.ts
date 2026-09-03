@@ -45,10 +45,11 @@ export interface FakeBff {
   /** Parsed JSON bodies of every `PUT /api/preferences`, oldest first. */
   preferencePuts: Array<Record<string, unknown>>;
   /**
-   * Resolves once the client has consumed `times` response bodies for
-   * `pathname` (`json()`, `text()` or `blob()`; one per request). Any state
-   * the client sets in the same promise chain has landed by then, inside a
-   * `waitFor` window, so no act() warning is raised. Real timers only.
+   * Resolves once the client has consumed `times` GET response bodies for
+   * `pathname` (`json()`, `text()` or `blob()`; one per request; writes are
+   * not counted). Any state the client sets in the same promise chain has
+   * landed by then, inside a `waitFor` window, so no act() warning is
+   * raised. Real timers only.
    */
   bodyConsumed: (pathname: string, times?: number) => Promise<void>;
   /** `bodyConsumed("/api/chat/history")`: the thread shows the branch the user would see. */
@@ -119,7 +120,9 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     const { pathname } = new URL(url, "http://localhost");
     const route = routes[pathname];
     if (!route) throw new Error(`Unexpected fetch: ${url}`);
-    return trackConsumption(await route(url, init), () =>
+    const response = await route(url, init);
+    if ((init?.method ?? "GET").toUpperCase() !== "GET") return response;
+    return trackConsumption(response, () =>
       consumed.set(pathname, (consumed.get(pathname) ?? 0) + 1)
     );
   });
