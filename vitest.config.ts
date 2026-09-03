@@ -1,19 +1,24 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
-// Two projects: pure-TS units and BFF route handlers run under node;
-// component and hook tests (*.test.tsx) run under jsdom with Testing Library.
+// Environment follows directory, not file extension: BFF route handlers and
+// lib units run under node; everything else under src/ (hooks, components,
+// app pages) is UI and runs under jsdom with Testing Library.
+const NODE_TESTS = ["src/app/api/**/*.test.ts", "src/lib/**/*.test.ts"];
+
 export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
   test: {
+    restoreMocks: true,
+    unstubGlobals: true,
     projects: [
       {
         extends: true,
         test: {
           name: "node",
           environment: "node",
-          include: ["src/**/*.test.ts"],
+          include: NODE_TESTS,
         },
       },
       {
@@ -21,7 +26,8 @@ export default defineConfig({
         test: {
           name: "jsdom",
           environment: "jsdom",
-          include: ["src/**/*.test.tsx"],
+          include: ["src/**/*.test.{ts,tsx}"],
+          exclude: [...configDefaults.exclude, ...NODE_TESTS],
           setupFiles: ["./vitest.setup.ts"],
         },
       },

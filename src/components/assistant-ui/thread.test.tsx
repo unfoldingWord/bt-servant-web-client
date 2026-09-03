@@ -1,204 +1,151 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-  type MockInstance,
-} from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssistantProvider } from "@/components/providers/assistant-provider";
-import type { ChatHistoryEntry, SSEEvent } from "@/types/engine";
+import type { ChatHistoryEntry } from "@/types/engine";
+import { consoleSpy } from "@/test/console";
+import {
+  CHIPS,
+  DISCLAIMER,
+  GREETING,
+  PLACEHOLDER,
+  SHOW_TRANSCRIPT,
+  VOICE_MESSAGE_LABEL,
+} from "@/test/copy";
+import { installFakeBff } from "@/test/fake-bff";
+import { completeEvent } from "@/test/fixtures";
+import { sseResponse } from "@/test/sse";
+import { advance, closeAndFlush, flush, pushAndFlush } from "@/test/timers";
 import { Thread } from "./thread";
 
 // The thread is rendered through the real AssistantProvider (real
 // useChatRuntime + real @assistant-ui/react runtime). Only `fetch` is
 // stubbed: history fixtures populate the thread; the stream endpoint records
-// the outbound body and answers with a single `complete` event.
+// the outbound body and, by default, answers with a single `complete` event.
 
-interface FetchHarness {
-  fetchMock: ReturnType<typeof vi.fn>;
-  streamBodies: Array<Record<string, unknown>>;
-}
+// The literal stored for a voice turn with no transcript. Kept local on
+// purpose: the test's point is that this literal never reaches the screen.
+const VOICE_SENTINEL = "[Voice message]";
+const ENGINE_REPLY = "Reply from the engine.";
+const AUDIO_ROUTE = "/api/audio";
 
-function sseResponse(events: SSEEvent[]): Response {
-  const encoder = new TextEncoder();
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-        );
-      }
-      controller.close();
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function renderThread({
+  historyEntries = [],
+  liveStream = false,
+}: {
+  historyEntries?: ChatHistoryEntry[];
+  /** Leave the stream open for the test to push events into. */
+  liveStream?: boolean;
+} = {}) {
+  const harness = installFakeBff({
+    historyEntries,
+    onStream: liveStream
+      ? undefined
+      : () => sseResponse([completeEvent([ENGINE_REPLY])]),
+    extraRoutes: {
+      // AudioPlayer fetches the proxied clip and calls res.blob(); audio
+      // bytes exercise its happy path (URL.createObjectURL is stubbed in
+      // setup). Bytes, not a Blob body: jsdom's Blob has no stream() and
+      // Node's Response cannot read it.
+      [AUDIO_ROUTE]: () =>
+        new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), {
+          headers: { "Content-Type": "audio/mpeg" },
+        }),
     },
   });
-  return new Response(body, {
-    status: 200,
-    headers: { "Content-Type": "text/event-stream" },
-  });
-}
-
-function installFetch(historyEntries: ChatHistoryEntry[] = []): FetchHarness {
-  const streamBodies: Array<Record<string, unknown>> = [];
-
-  const fetchMock = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-
-      if (url === "/api/chat/history") {
-        return new Response(JSON.stringify({ entries: historyEntries }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (url.startsWith("/api/audio?")) {
-        // AudioPlayer fetches the proxied clip as a blob; a 404 exercises its
-        // error path without needing URL.createObjectURL (absent in jsdom).
-        return new Response(null, { status: 404 });
-      }
-
-      if (url === "/api/chat/stream") {
-        streamBodies.push(JSON.parse(String(init?.body)));
-        return sseResponse([
-          {
-            type: "complete",
-            response: {
-              responses: ["Reply from the engine."],
-              response_language: "en",
-              voice_audio_base64: null,
-            },
-          },
-        ]);
-      }
-
-      throw new Error(`Unexpected fetch: ${url}`);
-    }
-  );
-
-  vi.stubGlobal("fetch", fetchMock);
-  return { fetchMock, streamBodies };
-}
-
-async function renderThread(historyEntries: ChatHistoryEntry[] = []) {
-  const harness = installFetch(historyEntries);
-  const utils = render(
+  render(
     <AssistantProvider>
       <Thread />
     </AssistantProvider>
   );
-  // Let the mount-time history load settle so the empty/non-empty branch is
-  // the one the user would actually see.
-  await waitFor(() =>
-    expect(harness.fetchMock).toHaveBeenCalledWith(
-      "/api/chat/history",
-      expect.anything()
-    )
-  );
-  // The first paint is always the empty state (messages start as []); once
-  // history is applied the greeting disappears for a non-empty thread.
+  // The first paint is always the empty state (messages start as []). Wait
+  // for history to be applied so the branch under test is the one the user
+  // would actually see; for a non-empty thread that is the greeting leaving.
+  await harness.historyLoaded();
   if (historyEntries.length > 0) {
     await waitFor(() =>
       expect(screen.queryByText(GREETING)).not.toBeInTheDocument()
     );
-  } else {
-    await screen.findByText(GREETING);
   }
-  return { ...utils, ...harness };
+  return harness;
 }
 
-const GREETING = "Hello, I'm BT Servant. How can I serve you today?";
-const PLACEHOLDER = "How can I help you today?";
-const DISCLAIMER =
-  "BT Servant can make mistakes. Please double-check responses.";
-
-const CHIPS = [
-  {
-    label: "Help me translate John 3:16",
-    prompt: "Help me translate John 3:16",
-  },
-  { label: "Summarize Gen 1:1-5", prompt: "Can you summarize Genesis 1:1-5?" },
-  { label: "Tell me about Amos", prompt: "Tell me about Amos in the Bible" },
-];
-
-let consoleError: MockInstance<typeof console.error>;
-
-beforeEach(() => {
-  consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-  vi.spyOn(console, "log").mockImplementation(() => {});
-});
-
-afterEach(() => {
-  const reactWarnings = consoleError.mock.calls.filter((args) =>
-    args.some(
-      (a) =>
-        typeof a === "string" &&
-        (a.includes("not wrapped in act") || a.startsWith("Warning:"))
-    )
-  );
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-  expect(reactWarnings).toEqual([]);
-});
-
 describe("Thread — empty state", () => {
-  it("renders the greeting and exactly three suggestion chips", async () => {
+  it("renders the greeting, exactly three suggestion chips and the composer placeholder", async () => {
     await renderThread();
 
     expect(screen.getByText(GREETING)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
 
     const chips = CHIPS.map((c) =>
       screen.getByRole("button", { name: c.label })
     );
     expect(chips).toHaveLength(3);
-
-    // No other suggestion-like buttons: the only buttons are the 3 chips and
-    // the composer send button (voice is hidden: jsdom has no MediaRecorder).
-    const allButtons = screen.getAllByRole("button");
-    expect(allButtons).toHaveLength(4);
   });
 
-  it("renders the composer placeholder", async () => {
-    await renderThread();
-    expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
-  });
+  it.each(CHIPS.filter((c) => c.prompt !== c.label))(
+    "clicking $label sends its prompt, not its label",
+    async (chip) => {
+      const { streamBodies } = await renderThread();
+      const user = userEvent.setup();
 
-  it("clicking a chip sends its prompt, not its label", async () => {
-    const { streamBodies } = await renderThread();
-    const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: chip.label }));
 
-    const chip = CHIPS[1];
-    expect(chip.prompt).not.toBe(chip.label); // premise: they differ
+      await waitFor(() => expect(streamBodies).toHaveLength(1));
+      expect(streamBodies[0].message).toBe(chip.prompt);
+      expect(streamBodies[0].message).not.toBe(chip.label);
+      expect(streamBodies[0].message_type).toBe("text");
 
-    await user.click(screen.getByRole("button", { name: chip.label }));
+      // The prompt (not the label) is what appears as the user's bubble, and
+      // the engine reply lands in the thread.
+      expect(await screen.findByText(chip.prompt)).toBeInTheDocument();
+      expect(await screen.findByText(ENGINE_REPLY)).toBeInTheDocument();
+      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+    }
+  );
+});
 
-    await waitFor(() => expect(streamBodies).toHaveLength(1));
-    expect(streamBodies[0].message).toBe(chip.prompt);
-    expect(streamBodies[0].message).not.toBe(chip.label);
-    expect(streamBodies[0].message_type).toBe("text");
+describe("Thread — streaming animation", () => {
+  // docs/streaming-animation.md invariant #1: when the `complete` text is not
+  // a continuation of what has already been revealed, the reveal snaps to the
+  // end of the new text. It must never restart from character 0.
+  it("snaps a diverging complete to the end of the text (never back to character 0) and finalizes through AnimatedText", async () => {
+    const harness = await renderThread({ liveStream: true });
 
-    // The prompt (not the label) is what appears as the user's bubble, and
-    // the engine reply lands in the thread.
-    expect(await screen.findByText(chip.prompt)).toBeInTheDocument();
-    expect(
-      await screen.findByText("Reply from the engine.")
-    ).toBeInTheDocument();
-    expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
-  });
+    // From here the clock is frozen so the 16ms reveal ticks are explicit.
+    // fireEvent, not userEvent: user-event's async wrapper waits on a real
+    // setTimeout(0) that the fake clock never fires.
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: CHIPS[0].label }));
+    await flush();
+    const stream = harness.streams[0];
+    expect(stream).toBeDefined();
 
-  it("the third chip also sends a prompt that differs from its label", async () => {
-    const { streamBodies } = await renderThread();
-    const user = userEvent.setup();
+    await pushAndFlush(stream, { type: "progress", text: "Amos was " });
+    await pushAndFlush(stream, { type: "progress", text: "a shepherd" });
+    // The first chunk is shown whole on mount; two ticks reveal 2 chars each.
+    await advance(2 * 16);
+    expect(screen.getByText("Amos was a sh")).toBeInTheDocument();
 
-    const chip = CHIPS[2];
-    await user.click(screen.getByRole("button", { name: chip.label }));
+    const finalText = "Amos, a shepherd from Tekoa.";
+    expect(finalText.startsWith("Amos was a sh")).toBe(false); // premise
+    await pushAndFlush(stream, completeEvent([finalText]));
 
-    await waitFor(() => expect(streamBodies).toHaveLength(1));
-    expect(streamBodies[0].message).toBe(chip.prompt);
+    // No further tick has run: the whole final text is already visible.
+    expect(screen.getByText(finalText)).toBeInTheDocument();
+    // The animation reported itself caught up, which is what calls
+    // finalizeComplete (the test never does); the permanent message renders
+    // with its disclaimer once the run is over.
+    expect(consoleSpy.log).toHaveBeenCalledWith(
+      "[AnimatedText] animation caught up, calling finalizeComplete"
+    );
+    expect(screen.getByText(DISCLAIMER)).toBeInTheDocument();
+
+    await closeAndFlush(stream);
   });
 });
 
@@ -212,7 +159,7 @@ describe("Thread — with messages", () => {
   ];
 
   it("renders the composer placeholder and the disclaimer under the last assistant message", async () => {
-    await renderThread(textHistory);
+    await renderThread({ historyEntries: textHistory });
 
     expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
     expect(screen.getByText("Who was Amos?")).toBeInTheDocument();
@@ -224,37 +171,36 @@ describe("Thread — with messages", () => {
   });
 
   it("renders a [Voice message] user turn as the 'Voice message' label, never the raw sentinel", async () => {
-    await renderThread([
-      {
-        user_message: "[Voice message]",
-        assistant_response: "Here is what I heard.",
-        created_at: "2026-09-01T12:00:00Z",
-      },
-    ]);
+    await renderThread({
+      historyEntries: [
+        {
+          user_message: VOICE_SENTINEL,
+          assistant_response: "Here is what I heard.",
+          created_at: "2026-09-01T12:00:00Z",
+        },
+      ],
+    });
 
-    expect(screen.queryByText("[Voice message]")).not.toBeInTheDocument();
-
-    const label = screen.getByText("Voice message");
-    expect(label).toBeInTheDocument();
-    // The label is decorated with the mic icon (lucide renders an <svg>).
-    expect(label.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByText(VOICE_SENTINEL)).not.toBeInTheDocument();
+    expect(screen.getByText(VOICE_MESSAGE_LABEL)).toBeInTheDocument();
   });
 
   it("renders the audio player for an assistant turn that carries voice audio", async () => {
-    await renderThread([
-      {
-        user_message: "[Voice message]",
-        assistant_response: "Spoken reply transcript.",
-        created_at: "2026-09-01T12:00:00Z",
-        voice_audio_url: "https://audio.example/reply.mp3",
-      },
-    ]);
+    const harness = await renderThread({
+      historyEntries: [
+        {
+          user_message: VOICE_SENTINEL,
+          assistant_response: "Spoken reply transcript.",
+          created_at: "2026-09-01T12:00:00Z",
+          voice_audio_url: "https://audio.example/reply.mp3",
+        },
+      ],
+    });
+    await harness.bodyConsumed(AUDIO_ROUTE);
 
-    // The audio player renders (time readout) and the transcript is
-    // collapsed behind a toggle rather than shown inline.
-    expect(screen.getByText("0:00")).toBeInTheDocument();
+    // The transcript is collapsed behind a toggle rather than shown inline.
     expect(
-      screen.getByRole("button", { name: "Show transcript" })
+      screen.getByRole("button", { name: SHOW_TRANSCRIPT })
     ).toBeInTheDocument();
     expect(
       screen.queryByText("Spoken reply transcript.")

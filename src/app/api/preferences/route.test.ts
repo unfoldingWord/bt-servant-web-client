@@ -1,61 +1,54 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  authMock,
+  jsonRequest,
+  ORG,
+  resetAuthMocks,
+  resolveOrgMock,
+  SESSION,
+} from "@/test/bff";
+import { GET, PUT } from "./route";
 
-const authMock = vi.fn();
-const resolveOrgMock = vi.fn();
-const getPrefsMock = vi.fn();
-const updatePrefsMock = vi.fn();
+const { getPrefsMock, updatePrefsMock } = vi.hoisted(() => ({
+  getPrefsMock: vi.fn(),
+  updatePrefsMock: vi.fn(),
+}));
 
-vi.mock("@/auth", () => ({ auth: authMock }));
-vi.mock("@/lib/org-resolver", () => ({
-  resolveOrgForEmail: resolveOrgMock,
+vi.mock("@/auth", async () => ({
+  auth: (await import("@/test/bff")).authMock,
+}));
+vi.mock("@/lib/org-resolver", async () => ({
+  resolveOrgForEmail: (await import("@/test/bff")).resolveOrgMock,
 }));
 vi.mock("@/lib/engine-client", () => ({
   getUserPreferences: getPrefsMock,
   updateUserPreferences: updatePrefsMock,
 }));
 
-const session = { user: { id: "user@example.com", email: "user@example.com" } };
-
-function putRequest(body: unknown) {
-  return new NextRequest("http://localhost/api/preferences", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const putRequest = (body: unknown) =>
+  jsonRequest("http://localhost/api/preferences", "PUT", body);
 
 beforeEach(() => {
-  authMock.mockReset().mockResolvedValue(session);
-  resolveOrgMock.mockReset().mockResolvedValue("partner-org");
+  resetAuthMocks();
   getPrefsMock.mockReset();
   updatePrefsMock.mockReset();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 describe("GET /api/preferences", () => {
   it("returns the engine payload for the session user and resolved org", async () => {
     getPrefsMock.mockResolvedValueOnce({ response_language: "pt" });
-    const { GET } = await import("./route");
 
     const res = await GET();
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ response_language: "pt" });
-    expect(resolveOrgMock).toHaveBeenCalledWith("user@example.com");
-    expect(getPrefsMock).toHaveBeenCalledWith(
-      "user@example.com",
-      "partner-org"
-    );
+    expect(resolveOrgMock).toHaveBeenCalledWith(SESSION.user.email);
+    expect(getPrefsMock).toHaveBeenCalledWith(SESSION.user.id, ORG);
   });
 
   it("returns 401 without a session", async () => {
     authMock.mockResolvedValueOnce(null);
-    const { GET } = await import("./route");
 
     const res = await GET();
 
@@ -66,8 +59,6 @@ describe("GET /api/preferences", () => {
 
 describe("PUT /api/preferences", () => {
   it("rejects a non-string response_language with 400 and does not call the engine", async () => {
-    const { PUT } = await import("./route");
-
     const res = await PUT(putRequest({ response_language: 42 }));
 
     expect(res.status).toBe(400);
@@ -79,22 +70,20 @@ describe("PUT /api/preferences", () => {
 
   it("forwards a valid response_language to the engine client and returns its payload", async () => {
     updatePrefsMock.mockResolvedValueOnce({ response_language: "pt" });
-    const { PUT } = await import("./route");
 
     const res = await PUT(putRequest({ response_language: "pt" }));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ response_language: "pt" });
     expect(updatePrefsMock).toHaveBeenCalledWith(
-      "user@example.com",
+      SESSION.user.id,
       { response_language: "pt" },
-      "partner-org"
+      ORG
     );
   });
 
   it("returns 401 without a session", async () => {
     authMock.mockResolvedValueOnce(null);
-    const { PUT } = await import("./route");
 
     const res = await PUT(putRequest({ response_language: "pt" }));
 
