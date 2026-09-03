@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
-import { useT } from "@/i18n/locale-provider";
+import { useT } from "@/i18n";
 import { MicIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect } from "react";
 

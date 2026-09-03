@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { GLOBAL_ERROR_HEADING, GLOBAL_ERROR_RETRY } from "@/test/copy";
+import { en, ptBR } from "@/test/copy";
 import GlobalError from "./global-error";
 
 // The route renders its own <html> root because global-error replaces the
@@ -21,19 +21,19 @@ describe("GlobalError", () => {
     renderGlobalError(reset);
 
     expect(
-      screen.getByRole("heading", { name: GLOBAL_ERROR_HEADING })
+      screen.getByRole("heading", { name: en["globalError.heading"] })
     ).toBeInTheDocument();
 
     await userEvent.click(
-      screen.getByRole("button", { name: GLOBAL_ERROR_RETRY })
+      screen.getByRole("button", { name: en["globalError.retry"] })
     );
     expect(reset).toHaveBeenCalledTimes(1);
   });
 
-  // The route renders its own <html> root because global-error replaces the
-  // root layout (and with it the LocaleProvider). The root therefore carries
-  // the fallback locale explicitly rather than none at all.
-  it("renders an <html> root whose lang is the fallback locale", () => {
+  // global-error replaces the root layout (and with it the LocaleProvider),
+  // so it renders the initial locale itself: the env pin when staging sets
+  // one, the default otherwise, declared on its own <html> root.
+  it("renders an <html> root whose lang is the default locale", () => {
     // A stale value on the document root before render. React 19 treats the
     // route's <html> as a host singleton: acquiring document.documentElement
     // strips attributes it does not own and applies the element's own props.
@@ -43,8 +43,18 @@ describe("GlobalError", () => {
     renderGlobalError();
 
     expect(
-      screen.getByRole("heading", { name: GLOBAL_ERROR_HEADING })
+      screen.getByRole("heading", { name: en["globalError.heading"] })
     ).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "en");
+  });
+
+  it("honors the NEXT_PUBLIC_DEFAULT_LOCALE pin for both copy and lang", () => {
+    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", "pt-BR");
+    renderGlobalError();
+
+    expect(
+      screen.getByRole("heading", { name: ptBR["globalError.heading"] })
+    ).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("lang", "pt-BR");
   });
 });

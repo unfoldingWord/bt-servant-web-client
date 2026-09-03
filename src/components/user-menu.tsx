@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useT } from "@/i18n/locale-provider";
+import { useT } from "@/i18n";
 
 interface UserMenuProps {
   userInitial: string;
@@ -28,7 +28,7 @@ export function UserMenu({ userInitial }: UserMenuProps) {
       <DropdownMenuTrigger asChild>
         <button
           className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ae5630] text-sm font-semibold text-white transition-all hover:bg-[#c4633a] focus:ring-2 focus:ring-[#ae5630] focus:ring-offset-2 focus:outline-none"
-          aria-label={t("userMenu.aria")}
+          aria-label={t("userMenu.trigger")}
         >
           {userInitial}
         </button>

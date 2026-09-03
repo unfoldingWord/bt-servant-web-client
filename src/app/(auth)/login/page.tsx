@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { APP_VERSION } from "@/lib/version";
-import { useT } from "@/i18n/locale-provider";
+import { useT } from "@/i18n";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
 export default function LoginPage() {
@@ -48,11 +48,11 @@ export default function LoginPage() {
           <div className="w-full max-w-md">
             {/* CTA Headline */}
             <div className="mb-6 text-center sm:mb-8">
-              <h1 className="text-2xl leading-tight font-bold whitespace-nowrap text-[#1a1a18] sm:text-3xl dark:text-[#eee]">
-                {t("login.headline")}
+              <h1 className="text-2xl leading-tight font-bold text-[#1a1a18] sm:text-3xl dark:text-[#eee]">
+                {t("login.heading")}
               </h1>
-              <p className="mt-3 text-sm font-medium whitespace-nowrap text-[#ae5630] sm:mt-4 sm:text-base">
-                {t("login.subheadline")}
+              <p className="mt-3 text-sm font-medium text-[#ae5630] sm:mt-4 sm:text-base">
+                {t("login.subheading")}
               </p>
             </div>
 

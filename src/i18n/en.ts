@@ -1,11 +1,13 @@
 /**
  * English — the typed source of truth for every user-facing interface string.
  *
- * Keys are semantic (`thread.welcome`), never the English text. Every other
- * locale file must `satisfies Record<MessageKey, string>` so a missing key
- * fails `tsc`; `src/i18n/i18n.test.ts` enforces runtime parity as well.
+ * Keys are semantic (`thread.welcome`), never the English text. Controls and
+ * actions are named for what they are or do (`userMenu.trigger`,
+ * `composer.voiceButton`, `thread.scrollToBottom`, `globalError.retry`), not
+ * for the ARIA attribute they happen to feed.
  *
- * `{param}` placeholders are interpolated by `t()`.
+ * Every other locale file must `satisfies Dictionary` so a missing key fails
+ * `tsc`; `src/i18n/i18n.test.ts` enforces runtime parity as well.
  *
  * Never add these here — they are data, not copy:
  *   - the `"[Voice message]"` sentinel (persisted in history, compared by
@@ -24,6 +26,7 @@ export const en = {
   // Suggestion chips. `label` is what the user sees; `prompt` is what is sent
   // to the model. They are separate keys on purpose: the prompt must be
   // idiomatic model input in each language, not a translation of the label.
+  // A label and prompt may legitimately coincide (translate, below).
   "thread.suggestion.translate.label": "Help me translate John 3:16",
   "thread.suggestion.translate.prompt": "Help me translate John 3:16",
   "thread.suggestion.summarize.label": "Summarize Gen 1:1-5",
@@ -33,6 +36,9 @@ export const en = {
 
   // Composer
   "composer.placeholder": "How can I help you today?",
+  // Same text as `message.voiceMessage` on purpose: one names the control
+  // that starts a recording, the other labels a sent voice turn. Either may
+  // be reworded independently in any locale.
   "composer.voiceButton": "Voice message",
 
   // Messages
@@ -43,7 +49,8 @@ export const en = {
     "Sorry, I couldn't deliver a response. Please try again.",
   "message.copyCode": "Copy",
 
-  // Streaming status and runtime errors (used from non-React code via `t()`)
+  // Streaming status and runtime errors. The runtime hook stores these keys
+  // (`status`, `metadata.custom.errorKey`); the thread translates at render.
   "status.connecting": "Connecting...",
   "error.connectionLost": "Connection lost. Please try again.",
   "error.generic": "Sorry, I encountered an error. Please try again.",
@@ -55,13 +62,13 @@ export const en = {
   "recorder.starting": "Starting...",
 
   // User menu
-  "userMenu.aria": "User menu",
+  "userMenu.trigger": "User menu",
   "userMenu.signOut": "Sign out",
   "userMenu.signOutDescription": "End your current session",
 
   // Login page
-  "login.headline": "Translate God's word even better.",
-  "login.subheadline":
+  "login.heading": "Translate God's word even better.",
+  "login.subheading":
     "Conversational interface to curated translation resources",
   "login.continueWithGoogle": "Continue with Google",
   "login.signingIn": "Signing in...",
@@ -72,3 +79,6 @@ export const en = {
 } as const;
 
 export type MessageKey = keyof typeof en;
+
+/** The shape every locale file must satisfy. */
+export type Dictionary = Record<MessageKey, string>;

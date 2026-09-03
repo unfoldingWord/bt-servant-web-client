@@ -13,7 +13,7 @@ import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { useT } from "@/i18n/locale-provider";
+import { useT } from "@/i18n";
 import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
 import { cn } from "@/lib/utils";
 

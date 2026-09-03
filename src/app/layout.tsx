@@ -5,8 +5,7 @@ import "@/lib/fontawesome";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { AnalyticsProvider } from "@/components/providers/analytics-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { LocaleProvider } from "@/i18n/locale-provider";
-import { DEFAULT_LOCALE } from "@/i18n/types";
+import { LocaleProvider, getInitialLocale } from "@/i18n";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,9 +31,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // SSR default; LocaleProvider updates document.documentElement.lang on
-    // the client once the locale is known.
-    <html lang={DEFAULT_LOCALE}>
+    // The env pin or default locale, matching the LocaleProvider's server
+    // snapshot; the provider updates document.documentElement.lang on the
+    // client once the browser's language is known.
+    <html lang={getInitialLocale()}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

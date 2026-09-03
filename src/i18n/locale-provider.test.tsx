@@ -1,23 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { renderToStaticMarkup } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
+import { renderToStaticMarkup, renderToString } from "react-dom/server";
+import { consoleSpy } from "@/test/console";
+import { stubNavigatorLanguage } from "@/test/navigator";
 import { LocaleProvider, useLocale, useT } from "./locale-provider";
-import { en } from "./en";
-import { ptBR } from "./pt-BR";
-
-// jsdom exposes navigator.language as a prototype getter ("en-US"); an
-// instance-level override shadows it and is removed again in afterEach.
-function stubNavigatorLanguage(value: string) {
-  Object.defineProperty(window.navigator, "language", {
-    value,
-    configurable: true,
-  });
-}
-
-function restoreNavigatorLanguage() {
-  delete (window.navigator as unknown as Record<string, unknown>).language;
-}
+import { LOCALES, type Locale } from "./locales";
 
 function Probe() {
   const { locale, setLocale } = useLocale();
@@ -36,99 +25,110 @@ function Probe() {
   );
 }
 
-function renderProbe() {
-  return render(
-    <LocaleProvider>
-      <Probe />
-    </LocaleProvider>
-  );
+const ui = (
+  <LocaleProvider>
+    <Probe />
+  </LocaleProvider>
+);
+
+const welcome = (locale: Locale) =>
+  LOCALES[locale].dictionary["thread.welcome"];
+
+/** Parses SSR markup: renderToStaticMarkup escapes the apostrophe in the greeting. */
+function parse(markup: string) {
+  const host = document.createElement("div");
+  host.innerHTML = markup;
+  return within(host);
+}
+
+function stubEnv(value: string | undefined) {
+  vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", value);
 }
 
 afterEach(() => {
-  restoreNavigatorLanguage();
-  vi.unstubAllEnvs();
   document.documentElement.lang = "";
 });
 
-describe("LocaleProvider", () => {
-  it("renders `en` on the server even when the browser would prefer pt-BR (hydration-safe)", () => {
-    stubNavigatorLanguage("pt-BR");
-    const markup = renderToStaticMarkup(
-      <LocaleProvider>
-        <Probe />
-      </LocaleProvider>
-    );
-    // Parse rather than string-match: renderToStaticMarkup escapes the
-    // apostrophe in the English greeting.
-    const host = document.createElement("div");
-    host.innerHTML = markup;
-    expect(host.querySelector('[data-testid="locale"]')?.textContent).toBe(
-      "en"
-    );
-    expect(host.querySelector('[data-testid="welcome"]')?.textContent).toBe(
-      en["thread.welcome"]
-    );
-  });
+describe("LocaleProvider — server render", () => {
+  it.each<[string | undefined, Locale]>([
+    [undefined, "en"],
+    ["pt-BR", "pt-BR"],
+  ])(
+    "NEXT_PUBLIC_DEFAULT_LOCALE=%j renders %s regardless of the browser (hydration-safe)",
+    (env, expected) => {
+      stubEnv(env);
+      stubNavigatorLanguage(expected === "en" ? "pt-BR" : "en-US");
+      const view = parse(renderToStaticMarkup(ui));
+      expect(view.getByTestId("locale")).toHaveTextContent(expected);
+      expect(view.getByTestId("welcome")).toHaveTextContent(welcome(expected));
+    }
+  );
+});
 
-  it("stays `en` after mount when navigator.language is an English tag", async () => {
-    stubNavigatorLanguage("en-US");
-    renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("en");
-    expect(screen.getByTestId("welcome")).toHaveTextContent(
-      en["thread.welcome"]
-    );
-    expect(document.documentElement.lang).toBe("en");
-  });
+describe("LocaleProvider — client seed", () => {
+  it.each<[string | undefined, string, Locale]>([
+    [undefined, "en-US", "en"],
+    [undefined, "pt-BR", "pt-BR"],
+    [undefined, "pt", "pt-BR"],
+    [undefined, "es-MX", "en"],
+    ["pt", "en-US", "pt-BR"],
+    ["en", "pt-BR", "en"],
+  ])(
+    "env=%j navigator.language=%s → %s (env wins over the browser)",
+    async (env, navLang, expected) => {
+      stubEnv(env);
+      stubNavigatorLanguage(navLang);
+      render(ui);
+      await act(async () => {});
+      expect(screen.getByTestId("locale")).toHaveTextContent(expected);
+      expect(screen.getByTestId("welcome")).toHaveTextContent(
+        welcome(expected)
+      );
+      expect(document.documentElement.lang).toBe(expected);
+    }
+  );
 
-  it("seeds pt-BR from navigator.language on mount", async () => {
+  it("hydrates the English server markup without a mismatch, then switches to the browser's pt-BR", async () => {
+    stubEnv(undefined);
     stubNavigatorLanguage("pt-BR");
-    renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("pt-BR");
-    expect(screen.getByTestId("welcome")).toHaveTextContent(
-      ptBR["thread.welcome"]
+
+    const container = document.body.appendChild(document.createElement("div"));
+    container.innerHTML = renderToString(ui);
+    expect(within(container).getByTestId("locale")).toHaveTextContent("en");
+
+    const recoverable: unknown[] = [];
+    let root!: ReturnType<typeof hydrateRoot>;
+    await act(async () => {
+      root = hydrateRoot(container, ui, {
+        onRecoverableError: (e) => recoverable.push(e),
+      });
+    });
+
+    // No hydration mismatch was recovered from or logged...
+    expect(recoverable).toEqual([]);
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+    // ...and the post-hydration update applied the browser's language.
+    expect(within(container).getByTestId("locale")).toHaveTextContent("pt-BR");
+    expect(within(container).getByTestId("welcome")).toHaveTextContent(
+      welcome("pt-BR")
     );
     expect(document.documentElement.lang).toBe("pt-BR");
-  });
 
-  it("normalizes a bare `pt` navigator tag to pt-BR and an unsupported tag to en", async () => {
-    stubNavigatorLanguage("pt");
-    const first = renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("pt-BR");
-    first.unmount();
-
-    stubNavigatorLanguage("es-MX");
-    renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("en");
-  });
-
-  it("prefers NEXT_PUBLIC_DEFAULT_LOCALE over navigator.language when set", async () => {
-    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", "pt");
-    stubNavigatorLanguage("en-US");
-    const first = renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("pt-BR");
-    first.unmount();
-
-    vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", "en");
-    stubNavigatorLanguage("pt-BR");
-    renderProbe();
-    await act(async () => {});
-    expect(screen.getByTestId("locale")).toHaveTextContent("en");
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it("keeps document.documentElement.lang in sync on every setLocale", async () => {
+    stubEnv(undefined);
     stubNavigatorLanguage("en-US");
-    renderProbe();
+    render(ui);
     await act(async () => {});
     expect(document.documentElement.lang).toBe("en");
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "to-pt" }));
     expect(screen.getByTestId("locale")).toHaveTextContent("pt-BR");
+    expect(screen.getByTestId("welcome")).toHaveTextContent(welcome("pt-BR"));
     expect(document.documentElement.lang).toBe("pt-BR");
 
     await user.click(screen.getByRole("button", { name: "to-en" }));
@@ -137,8 +137,6 @@ describe("LocaleProvider", () => {
   });
 
   it("useLocale throws outside a LocaleProvider", () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow(/LocaleProvider/);
-    spy.mockRestore();
   });
 });

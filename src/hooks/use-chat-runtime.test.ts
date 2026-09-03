@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
-import {
-  CONNECTING,
-  CONNECTION_LOST,
-  FALLBACK_ERROR,
-  TIMEOUT_ERROR,
-} from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import {
@@ -16,7 +10,6 @@ import {
   teardownMounted,
   trackMount,
 } from "@/test/timers";
-import { LocaleProvider } from "@/i18n/locale-provider";
 import { useChatRuntime } from "./use-chat-runtime";
 
 // Analytics seam. The hook only ever calls `track`; assert on the calls
@@ -29,6 +22,10 @@ beforeEach(() => trackMock.mockClear());
 
 const failedEvents = () =>
   trackMock.mock.calls.filter(([name]) => name === "chat_response_failed");
+
+// The hook is locale-agnostic: it stores dictionary keys (`status`,
+// `errorKey`), never copy, and needs no LocaleProvider. The rendered copy per
+// locale is asserted in thread.test.tsx.
 
 // The literal the hook stores for a voice turn with no transcript. Kept local
 // on purpose: the test's point is the literal, not a shared constant.
@@ -57,9 +54,7 @@ afterEach(teardownMounted);
  */
 async function mountRuntime(opts?: FakeBffOptions) {
   const harness = installFakeBff(opts);
-  const { result, unmount } = renderHook(() => useChatRuntime(), {
-    wrapper: LocaleProvider,
-  });
+  const { result, unmount } = renderHook(() => useChatRuntime());
   trackMount({ unmount, streams: harness.streams });
   await harness.historyLoaded();
   return { harness, result };
@@ -86,14 +81,14 @@ async function startStream(opts?: FakeBffOptions, message: SendArgs = ["hi"]) {
 // ---------------------------------------------------------------------------
 
 describe("useChatRuntime — SSE event handling", () => {
-  it("shows 'Connecting...' once the stream opens, then the status event text", async () => {
+  it("reports the connecting key once the stream opens, then the worker's status text", async () => {
     const { result, stream } = await startStream();
 
     expect(result.current.isLoading).toBe(true);
-    expect(result.current.statusMessage).toBe(CONNECTING);
+    expect(result.current.status).toEqual({ key: "status.connecting" });
 
     await pushAndFlush(stream, { type: "status", message: "Looking up Amos" });
-    expect(result.current.statusMessage).toBe("Looking up Amos");
+    expect(result.current.status).toEqual({ text: "Looking up Amos" });
   });
 
   it("accumulates progress chunks into streamingText in arrival order", async () => {
@@ -115,7 +110,7 @@ describe("useChatRuntime — SSE event handling", () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, { type: "status", message: "Thinking" });
-    expect(result.current.statusMessage).toBe("Thinking");
+    expect(result.current.status).toEqual({ text: "Thinking" });
 
     await pushAndFlush(stream, completeEvent(["First part.", "Second part."]));
 
@@ -124,7 +119,7 @@ describe("useChatRuntime — SSE event handling", () => {
     expect(assistant).toHaveLength(1);
     expect(textOf(assistant[0])).toBe("First part.\n\nSecond part.");
     expect(assistant[0].isStreaming).toBeUndefined();
-    expect(result.current.statusMessage).toBeNull();
+    expect(result.current.status).toBeNull();
     expect(result.current.streamingText).toBe("");
   });
 
@@ -140,7 +135,7 @@ describe("useChatRuntime — SSE event handling", () => {
     // reports isCompleting so AnimatedText can catch up.
     expect(result.current.isCompleting).toBe(true);
     expect(result.current.streamingText).toBe("First part.\n\nSecond part.");
-    expect(result.current.statusMessage).toBeNull();
+    expect(result.current.status).toBeNull();
     expect(result.current.isLoading).toBe(true);
     expect(lastMessage(result).isStreaming).toBe(true);
 
@@ -164,7 +159,7 @@ describe("useChatRuntime — SSE event handling", () => {
     expect(result.current.streamingText).toBe("");
   });
 
-  it("error event appends the canned fallback (never the raw worker text) and clears loading", async () => {
+  it("error event appends an error.generic marker (never the raw worker text) and clears loading", async () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, { type: "progress", text: "partial" });
@@ -177,14 +172,16 @@ describe("useChatRuntime — SSE event handling", () => {
     expect(result.current.isLoading).toBe(false);
     const last = lastMessage(result);
     expect(last.role).toBe("assistant");
-    expect(textOf(last)).toBe(FALLBACK_ERROR);
-    expect(textOf(last)).not.toContain("overloaded_error");
-    expect(result.current.statusMessage).toBeNull();
+    expect(last.errorKey).toBe("error.generic");
+    // Data, not copy: the message carries no text of its own, so the raw
+    // worker string cannot leak through any renderer.
+    expect(textOf(last)).toBe("");
+    expect(result.current.status).toBeNull();
     expect(result.current.streamingText).toBe("");
     expect(result.current.isCompleting).toBe(false);
   });
 
-  it("a non-2xx stream response also yields the canned fallback", async () => {
+  it("a non-2xx stream response also yields the error.generic marker", async () => {
     const { result } = await mountRuntime({
       onStream: () => new Response("upstream exploded", { status: 502 }),
     });
@@ -196,11 +193,11 @@ describe("useChatRuntime — SSE event handling", () => {
     expect(result.current.isLoading).toBe(false);
     const last = lastMessage(result);
     expect(last.role).toBe("assistant");
-    expect(textOf(last)).toBe(FALLBACK_ERROR);
-    expect(textOf(last)).not.toContain("upstream exploded");
+    expect(last.errorKey).toBe("error.generic");
+    expect(textOf(last)).toBe("");
   });
 
-  it("a stream that closes without a terminal event yields the connection-lost message", async () => {
+  it("a stream that closes without a terminal event yields the error.connectionLost marker", async () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, { type: "progress", text: "partial" });
@@ -209,7 +206,7 @@ describe("useChatRuntime — SSE event handling", () => {
     await closeAndFlush(stream);
 
     expect(result.current.isLoading).toBe(false);
-    expect(textOf(lastMessage(result))).toBe(CONNECTION_LOST);
+    expect(lastMessage(result).errorKey).toBe("error.connectionLost");
     expect(result.current.streamingText).toBe("");
   });
 });
@@ -261,7 +258,7 @@ describe("useChatRuntime — timeouts", () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, { type: "status", message: "Thinking" });
-    expect(result.current.statusMessage).toBe("Thinking");
+    expect(result.current.status).toEqual({ text: "Thinking" });
 
     // Just under the limit: still alive.
     await advance(115_000);
@@ -273,11 +270,11 @@ describe("useChatRuntime — timeouts", () => {
     await advance(10_000);
     expect(stream.signal?.aborted).toBe(true);
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.statusMessage).toBeNull();
+    expect(result.current.status).toBeNull();
     // The user sees a timeout message, not a silent reset.
     expect(result.current.messages).toHaveLength(2);
     expect(lastMessage(result).role).toBe("assistant");
-    expect(textOf(lastMessage(result))).toBe(TIMEOUT_ERROR);
+    expect(lastMessage(result).errorKey).toBe("error.timeout");
     // ...and the failure metric records why.
     expect(failedEvents()).toHaveLength(1);
     expect(failedEvents()[0][1]).toMatchObject({
@@ -293,7 +290,9 @@ describe("useChatRuntime — timeouts", () => {
       type: "status",
       message: "Generating audio response",
     });
-    expect(result.current.statusMessage).toBe("Generating audio response");
+    expect(result.current.status).toEqual({
+      text: "Generating audio response",
+    });
 
     // Past the default limit, with no further events: the audio window keeps
     // it alive.
@@ -337,7 +336,7 @@ describe("useChatRuntime — timeouts", () => {
     expect(stream.signal?.aborted).toBe(true);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.messages).toHaveLength(2);
-    expect(textOf(lastMessage(result))).toBe(TIMEOUT_ERROR);
+    expect(lastMessage(result).errorKey).toBe("error.timeout");
     expect(failedEvents()).toHaveLength(1);
     expect(failedEvents()[0][1]).toMatchObject({ reason: "hard_max_timeout" });
     expect(failedEvents()[0][1].duration_ms).toBeGreaterThanOrEqual(300_000);

@@ -1,88 +1,68 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { en, type MessageKey } from "./en";
-import { ptBR } from "./pt-BR";
-import { interpolate, normalizeLocale, t } from "./t";
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "./types";
+import { DEFAULT_LOCALE, LOCALES, SUPPORTED_LOCALES } from "./locales";
+import { getInitialLocale, normalizeLocale, t } from "./t";
 
 // Values that are legitimately identical across locales (proper nouns).
-// Any other pt-BR value that is byte-identical to its English source is an
+// Any other value that is byte-identical to its English source is an
 // untranslated key and fails the parity check below.
 const IDENTICAL_VALUE_ALLOWLIST = new Set<string>(["BT Servant"]);
 
-const enKeys = Object.keys(en).sort();
-const ptKeys = Object.keys(ptBR).sort();
+const enKeys = Object.keys(en).sort() as MessageKey[];
+const OTHER_LOCALES = SUPPORTED_LOCALES.filter((l) => l !== DEFAULT_LOCALE);
 
-describe("dictionary parity", () => {
-  it("every en key exists in pt-BR and vice versa", () => {
-    expect(ptKeys).toEqual(enKeys);
+describe("locale registry", () => {
+  it("derives SUPPORTED_LOCALES from the registry and includes the default", () => {
+    expect(SUPPORTED_LOCALES).toEqual(Object.keys(LOCALES));
+    expect(SUPPORTED_LOCALES).toContain(DEFAULT_LOCALE);
+    expect(LOCALES[DEFAULT_LOCALE].dictionary).toBe(en);
   });
 
-  it("supports exactly the locales declared in the Locale union", () => {
-    expect(SUPPORTED_LOCALES).toEqual(["en", "pt-BR"]);
-    expect(DEFAULT_LOCALE).toBe("en");
-  });
-
-  it("has no empty values in either dictionary", () => {
-    for (const key of enKeys as MessageKey[]) {
-      expect(en[key].trim(), `en.${key}`).not.toBe("");
-      expect(ptBR[key].trim(), `pt-BR.${key}`).not.toBe("");
+  it("gives every locale at least one lower-case primary subtag, none shared", () => {
+    const seen = new Set<string>();
+    for (const locale of SUPPORTED_LOCALES) {
+      const { primaries } = LOCALES[locale];
+      expect(primaries.length, locale).toBeGreaterThan(0);
+      for (const p of primaries) {
+        expect(p, `${locale}: ${p}`).toBe(p.toLowerCase());
+        expect(seen.has(p), `${p} claimed twice`).toBe(false);
+        seen.add(p);
+      }
     }
   });
 
-  it("has no pt-BR value byte-identical to en outside the proper-noun allow-list", () => {
-    const untranslated = (enKeys as MessageKey[]).filter(
-      (key) => ptBR[key] === en[key] && !IDENTICAL_VALUE_ALLOWLIST.has(en[key])
+  // One literal anchor for the whole suite: the default locale renders
+  // English copy, not keys. Every other string assertion reads the dictionary.
+  it("renders English copy, not keys, in the default locale", () => {
+    expect(t(DEFAULT_LOCALE, "thread.welcome")).toBe(
+      "Hello, I'm BT Servant. How can I serve you today?"
+    );
+  });
+});
+
+describe.each(OTHER_LOCALES)("dictionary parity: %s", (locale) => {
+  const dict = LOCALES[locale].dictionary;
+
+  it("has exactly the en keys", () => {
+    expect(Object.keys(dict).sort()).toEqual(enKeys);
+  });
+
+  it("has no empty values", () => {
+    for (const key of enKeys) {
+      expect(dict[key].trim(), key).not.toBe("");
+    }
+  });
+
+  it("has no value byte-identical to en outside the proper-noun allow-list", () => {
+    const untranslated = enKeys.filter(
+      (key) => dict[key] === en[key] && !IDENTICAL_VALUE_ALLOWLIST.has(en[key])
     );
     expect(untranslated).toEqual([]);
   });
 
-  it("keeps the same {param} placeholders in both languages", () => {
-    const placeholders = (s: string) =>
-      [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
-    for (const key of enKeys as MessageKey[]) {
-      expect(placeholders(ptBR[key]), key).toEqual(placeholders(en[key]));
-    }
-  });
-});
-
-describe("t()", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("returns the value for the requested locale", () => {
-    expect(t("en", "thread.welcome")).toBe(en["thread.welcome"]);
-    expect(t("pt-BR", "thread.welcome")).toBe(ptBR["thread.welcome"]);
-    expect(t("pt-BR", "thread.welcome")).not.toBe(en["thread.welcome"]);
-  });
-
-  it("interpolates {param} placeholders and leaves unknown ones in place", () => {
-    expect(interpolate("Hello {name}, {name}!", { name: "Ana" })).toBe(
-      "Hello Ana, Ana!"
-    );
-    expect(interpolate("{count} files", { count: 3 })).toBe("3 files");
-    expect(interpolate("Keep {this}", {})).toBe("Keep {this}");
-    expect(interpolate("No params", undefined)).toBe("No params");
-  });
-
-  it("passes params through to interpolation", () => {
-    // No shipped key carries a placeholder today; a key without one must be
-    // returned unchanged when params are supplied.
-    expect(t("en", "thread.welcome", { unused: "x" })).toBe(
-      en["thread.welcome"]
-    );
-  });
-
-  it("throws on a missing key outside production", () => {
-    vi.stubEnv("NODE_ENV", "development");
-    expect(() => t("en", "nope.missing" as MessageKey)).toThrow(
-      /nope\.missing/
-    );
-  });
-
-  it("returns the key on a missing key in production", () => {
-    vi.stubEnv("NODE_ENV", "production");
-    expect(t("pt-BR", "nope.missing" as MessageKey)).toBe("nope.missing");
+  it("t() returns this locale's value, not English", () => {
+    expect(t(locale, "thread.welcome")).toBe(dict["thread.welcome"]);
+    expect(t(locale, "thread.welcome")).not.toBe(en["thread.welcome"]);
   });
 });
 
@@ -104,5 +84,19 @@ describe("normalizeLocale()", () => {
     [null, "en"],
   ] as const)("normalizeLocale(%j) → %s", (input, expected) => {
     expect(normalizeLocale(input)).toBe(expected);
+  });
+});
+
+describe("getInitialLocale()", () => {
+  it.each([
+    [undefined, "en"],
+    ["", "en"],
+    ["pt", "pt-BR"],
+    ["pt-BR", "pt-BR"],
+    ["xx", "en"],
+  ])("NEXT_PUBLIC_DEFAULT_LOCALE=%j → %s", (env, expected) => {
+    if (env === undefined) vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", undefined);
+    else vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", env);
+    expect(getInitialLocale()).toBe(expected);
   });
 });

@@ -1,4 +1,4 @@
-import type { MessageKey } from "./en";
+import type { Dictionary } from "./en";
 
 /**
  * Português (Brasil).
@@ -12,21 +12,22 @@ import type { MessageKey } from "./en";
  */
 export const ptBR = {
   // Chat thread
-  "thread.welcome": "Olá, eu sou o BT Servant. Como posso servir você hoje?",
+  "thread.welcome": "Olá, eu sou o BT Servant. Como posso te servir hoje?",
   "thread.disclaimer": "O BT Servant pode cometer erros. Confira as respostas.",
   "thread.thinking": "Pensando...",
   "thread.scrollToBottom": "Rolar até o fim",
 
-  // Suggestion chips
+  // Suggestion chips. Where the natural request is already imperative
+  // (translate, summarize) the label and prompt coincide; see en.ts.
   "thread.suggestion.translate.label": "Me ajude a traduzir João 3:16",
   "thread.suggestion.translate.prompt": "Me ajude a traduzir João 3:16",
   "thread.suggestion.summarize.label": "Resuma Gênesis 1:1-5",
-  "thread.suggestion.summarize.prompt": "Você pode resumir Gênesis 1:1-5?",
+  "thread.suggestion.summarize.prompt": "Resuma Gênesis 1:1-5",
   "thread.suggestion.amos.label": "Fale sobre Amós",
   "thread.suggestion.amos.prompt": "Fale sobre Amós na Bíblia",
 
   // Composer
-  "composer.placeholder": "Como posso ajudar você hoje?",
+  "composer.placeholder": "Como posso te ajudar hoje?",
   "composer.voiceButton": "Mensagem de voz",
 
   // Messages
@@ -34,7 +35,7 @@ export const ptBR = {
   "message.showTranscript": "Mostrar transcrição",
   "message.hideTranscript": "Ocultar transcrição",
   "message.deliveryFailed":
-    "Desculpe, não consegui entregar uma resposta. Tente novamente.",
+    "Desculpe, não consegui enviar uma resposta. Tente novamente.",
   "message.copyCode": "Copiar",
 
   // Streaming status and runtime errors
@@ -49,18 +50,18 @@ export const ptBR = {
   "recorder.starting": "Iniciando...",
 
   // User menu
-  "userMenu.aria": "Menu do usuário",
+  "userMenu.trigger": "Menu do usuário",
   "userMenu.signOut": "Sair",
   "userMenu.signOutDescription": "Encerrar sua sessão atual",
 
   // Login page
-  "login.headline": "Traduza a Palavra de Deus ainda melhor.",
-  "login.subheadline":
-    "Interface de conversação para recursos de tradução selecionados",
+  "login.heading": "Traduza a Palavra de Deus ainda melhor.",
+  "login.subheading":
+    "Interface conversacional para recursos de tradução selecionados",
   "login.continueWithGoogle": "Continuar com o Google",
   "login.signingIn": "Entrando...",
 
   // Global error boundary
   "globalError.heading": "Algo deu errado.",
   "globalError.retry": "Tentar novamente",
-} satisfies Record<MessageKey, string>;
+} satisfies Dictionary;

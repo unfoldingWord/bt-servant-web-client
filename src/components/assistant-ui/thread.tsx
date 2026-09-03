@@ -6,8 +6,8 @@ import { useChatContext } from "@/components/providers/assistant-provider";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import { AudioPlayer } from "@/components/voice/audio-player";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
-import { useT } from "@/i18n/locale-provider";
-import type { MessageKey } from "@/i18n/en";
+import type { ErrorKey } from "@/hooks/use-chat-runtime";
+import { useT, type MessageKey } from "@/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import {
@@ -160,8 +160,7 @@ const ScrollToBottomButton: FC<{ visible: boolean; onClick: () => void }> = ({
 };
 
 const LoadingIndicator: FC = () => {
-  const { isLoading, statusMessage, streamingText, isAudioRequest } =
-    useChatContext();
+  const { isLoading, status, streamingText, isAudioRequest } = useChatContext();
   const t = useT();
 
   // Show loading indicator when loading and either:
@@ -174,7 +173,11 @@ const LoadingIndicator: FC = () => {
       <div className="flex items-center gap-2 text-sm text-[#6b6a68] dark:text-[#9a9893]">
         <Loader2Icon className="size-4 animate-spin" />
         <span className="font-sans italic">
-          {statusMessage || t("thread.thinking")}
+          {status === null
+            ? t("thread.thinking")
+            : "text" in status
+              ? status.text
+              : t(status.key)}
         </span>
       </div>
     </div>
@@ -237,33 +240,25 @@ export const Thread: FC = () => {
   );
 };
 
-// `label` is shown on the chip; `prompt` is what gets sent to the model. They
-// are separate dictionary keys so each locale can carry an idiomatic prompt
-// rather than a translation of the label.
+// A chip is identified by the middle segment of its dictionary keys: the
+// `label` (shown on the chip) and `prompt` (sent to the model) for one id are
+// derived from it, so they cannot be paired wrongly. They are separate keys
+// so each locale can carry an idiomatic prompt rather than a translation of
+// the label.
+type SuggestionId = MessageKey extends infer K
+  ? K extends `thread.suggestion.${infer Id}.label`
+    ? Id
+    : never
+  : never;
+
 const SUGGESTIONS: ReadonlyArray<{
-  labelKey: MessageKey;
-  promptKey: MessageKey;
+  id: SuggestionId;
   icon: typeof faLanguage;
   iconColor: string;
 }> = [
-  {
-    labelKey: "thread.suggestion.translate.label",
-    promptKey: "thread.suggestion.translate.prompt",
-    icon: faLanguage,
-    iconColor: "#ae5630", // orange accent
-  },
-  {
-    labelKey: "thread.suggestion.summarize.label",
-    promptKey: "thread.suggestion.summarize.prompt",
-    icon: faListUl,
-    iconColor: "#7d6b5a", // warm brown
-  },
-  {
-    labelKey: "thread.suggestion.amos.label",
-    promptKey: "thread.suggestion.amos.prompt",
-    icon: faCircleInfo,
-    iconColor: "#5a7d6b", // sage green
-  },
+  { id: "translate", icon: faLanguage, iconColor: "#ae5630" }, // orange accent
+  { id: "summarize", icon: faListUl, iconColor: "#7d6b5a" }, // warm brown
+  { id: "amos", icon: faCircleInfo, iconColor: "#5a7d6b" }, // sage green
 ];
 
 const ThreadWelcome: FC = () => {
@@ -289,12 +284,12 @@ const ThreadWelcome: FC = () => {
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             {SUGGESTIONS.map((suggestion, index) => (
               <div
-                key={suggestion.promptKey}
+                key={suggestion.id}
                 className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-200"
                 style={{ animationDelay: `${100 + index * 50}ms` }}
               >
                 <ThreadPrimitive.Suggestion
-                  prompt={t(suggestion.promptKey)}
+                  prompt={t(`thread.suggestion.${suggestion.id}.prompt`)}
                   send
                   asChild
                 >
@@ -308,7 +303,7 @@ const ThreadWelcome: FC = () => {
                       style={{ color: suggestion.iconColor }}
                     />
                     <span className="text-[#1a1a18] dark:text-[#eee]">
-                      {t(suggestion.labelKey)}
+                      {t(`thread.suggestion.${suggestion.id}.label`)}
                     </span>
                   </Button>
                 </ThreadPrimitive.Suggestion>
@@ -549,6 +544,11 @@ const AssistantMessage: FC = () => {
     ({ message }) =>
       message.metadata?.custom?.attachments as Attachment[] | undefined
   );
+  // Canned runtime errors carry a dictionary key, not text (the hook is
+  // locale-agnostic); the copy is chosen here, in the current locale.
+  const errorKey = useAssistantState(
+    ({ message }) => message.metadata?.custom?.errorKey as ErrorKey | undefined
+  );
   const messageText = useAssistantState(({ message }) => {
     const firstPart = message.content[0];
     return firstPart?.type === "text" ? firstPart.text : "";
@@ -567,7 +567,11 @@ const AssistantMessage: FC = () => {
 
   return (
     <div className="relative mb-8 pl-2">
-      {hasAudio ? (
+      {errorKey ? (
+        <div className="prose prose-neutral dark:prose-invert max-w-none font-serif leading-[1.65rem] text-[#1a1a18] dark:text-[#eee]">
+          <p>{t(errorKey)}</p>
+        </div>
+      ) : hasAudio ? (
         <div className="mt-2">
           <AudioPlayer audioBase64={audioBase64} audioUrl={audioUrl} />
           {hasText && (

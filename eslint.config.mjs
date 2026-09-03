@@ -173,11 +173,16 @@ const eslintConfig = defineConfig([
   // (className, type, svg `d`, ...) with no per-attribute filter — 196 hits
   // on this tree. The user-facing attributes and the ternary/logical
   // literals the rule does not see are covered by the `no-restricted-syntax`
-  // selectors below instead.
+  // selectors below instead. Both only see JSX: strings a hook or lib
+  // module returns for display are convention-only (docs/i18n.md).
   // ===========================================
   {
-    files: ["src/components/**/*.tsx", "src/app/**/*.tsx"],
-    ignores: ["**/*.test.tsx"],
+    files: [
+      "src/components/**/*.tsx",
+      "src/app/**/*.tsx",
+      "src/hooks/**/*.{ts,tsx}",
+    ],
+    ignores: ["**/*.test.{ts,tsx}"],
     rules: {
       "react/jsx-no-literals": [
         "error",
@@ -196,8 +201,16 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         {
+          // aria-label="text"
           selector:
             "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > Literal",
+          message:
+            "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
+        },
+        {
+          // aria-label={"text"} and aria-label={`text`}
+          selector:
+            "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > JSXExpressionContainer > :matches(Literal, TemplateLiteral)",
           message:
             "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
         },
