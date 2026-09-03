@@ -112,6 +112,24 @@ function deferredGet() {
   };
 }
 
+/** The first PUT answers only when the test says so; later PUTs at once. */
+function deferredFirstPut() {
+  let answer!: () => void;
+  let calls = 0;
+  const preferencePutResponse = () =>
+    ++calls === 1
+      ? new Promise<Response>((r) => (answer = () => r(jsonResponse({}))))
+      : jsonResponse({});
+  return {
+    preferencePutResponse,
+    answerFirst: async () => {
+      answer();
+      await act(async () => {});
+      await act(async () => {});
+    },
+  };
+}
+
 const putCalls = (harness: ReturnType<typeof installFakeBff>) =>
   harness.fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
 
@@ -402,6 +420,61 @@ describe("LocalePreferenceProvider — choose()", () => {
     }
   );
 
+  // Regression: a pick that lands while a reply is animating waits like a
+  // loaded value does.
+  it("honors `hold`: the chrome changes only once `hold` clears", async () => {
+    const { harness, result, rerender } = mount({
+      navigator: "en-US",
+      hold: true,
+      storedPreferences: { response_language: "en" },
+    });
+    await preferencesRead(harness);
+
+    await act(() => result.current.choose("pt-BR"));
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+    ]);
+    expect(result.current.locale).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+
+    rerender({ hold: false });
+    await act(async () => {});
+    expect(result.current.locale).toBe("pt-BR");
+    expect(document.documentElement.lang).toBe("pt-BR");
+  });
+
+  // Regression: two quick picks. The first PUT resolving late must neither
+  // flip the chrome back nor be the value that ends up stored.
+  it("serializes picks: a superseded pick's late PUT changes nothing", async () => {
+    const { preferencePutResponse, answerFirst } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse,
+    });
+    await preferencesRead(harness);
+
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.choose("pt-BR");
+    });
+    await act(() => result.current.choose("en"));
+    expect(result.current.locale).toBe("en");
+    expect(result.current.responseLanguageHint).toBe("en");
+
+    await answerFirst();
+    await first;
+
+    expect(result.current.locale).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(harness.preferencePuts.at(-1)).toEqual({
+      response_language: toResponseLanguage("en"),
+    });
+    expect(harness.preferencePuts).toHaveLength(2);
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
   it("resolves, logs one console.error and keeps the current locale when the PUT fails", async () => {
     const { harness, result } = mount({
       navigator: "en-US",
@@ -419,6 +492,70 @@ describe("LocalePreferenceProvider — choose()", () => {
     );
     expect(result.current.locale).toBe("en");
     expect(document.documentElement.lang).toBe("en");
+  });
+});
+
+describe("LocalePreferenceProvider — responseLanguageHint", () => {
+  it("is undefined while the GET is in flight, then the stored code", async () => {
+    const { route, answer } = deferredGet();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      extraRoutes: route,
+    });
+    await waitFor(
+      () => expect(harness.fetchMock).toHaveBeenCalledTimes(1),
+      WAIT
+    );
+    expect(result.current.responseLanguageHint).toBeUndefined();
+
+    await answer({ response_language: "pt" });
+
+    expect(result.current.responseLanguageHint).toBe("pt");
+    expect(result.current.locale).toBe("pt-BR");
+  });
+
+  it("is the browser-derived code as soon as an empty GET comes back, while the seed PUT is still pending", async () => {
+    const { preferencePutResponse } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "pt-BR",
+      preferencePutResponse,
+    });
+
+    await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+    await act(async () => {});
+
+    expect(result.current.responseLanguageHint).toBe(
+      toResponseLanguage("pt-BR")
+    );
+  });
+
+  it("stays undefined for a stored code this client does not know (the worker keeps replying in it)", async () => {
+    const { harness, result } = mount({
+      navigator: "pt-BR",
+      storedPreferences: { response_language: "xx" },
+    });
+    await preferencesRead(harness);
+
+    expect(result.current.locale).toBe("en");
+    expect(result.current.responseLanguageHint).toBeUndefined();
+  });
+
+  it("is the chosen code from the moment of the pick, before its PUT lands", async () => {
+    const { preferencePutResponse } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse,
+    });
+    await preferencesRead(harness);
+    expect(result.current.responseLanguageHint).toBe("en");
+
+    act(() => {
+      void result.current.choose("pt-BR");
+    });
+
+    expect(result.current.responseLanguageHint).toBe("pt");
+    expect(result.current.locale).toBe("en"); // the PUT has not landed
   });
 });
 

@@ -21,6 +21,9 @@ interface UserMenuProps {
   userInitial: string;
 }
 
+// Names the reason the picker is locked; referenced by the radio items.
+const LOCKED_HINT_ID = "language-locked-hint";
+
 const ITEM_CLASS =
   "cursor-pointer text-[#1a1a18] focus:bg-[#f5f5f0] focus:text-[#1a1a18] dark:text-[#eee] dark:focus:bg-[#393937] dark:focus:text-[#eee]";
 
@@ -38,8 +41,11 @@ export function UserMenu({ userInitial }: UserMenuProps) {
 
   // The provider persists first, then switches the chrome, so the interface
   // and the reply language never disagree; on failure it logs and the radio
-  // (controlled by `locale`) snaps back.
+  // (controlled by `locale`) snaps back. While locked, a selection is
+  // ignored here rather than through Radix's `disabled`, which would also
+  // drop the items out of keyboard navigation.
   const selectLocale = (value: string) => {
+    if (languageLocked) return;
     const next = SUPPORTED_LOCALES.find((l) => l === value);
     if (!next || next === locale) return;
     void choose(next);
@@ -64,7 +70,10 @@ export function UserMenu({ userInitial }: UserMenuProps) {
           {t("userMenu.language")}
         </DropdownMenuLabel>
         {languageLocked && (
-          <p className="px-2 pb-1 text-xs text-[#6b6a68] italic dark:text-[#9a9893]">
+          <p
+            id={LOCKED_HINT_ID}
+            className="px-2 pb-1 text-xs text-[#6b6a68] italic dark:text-[#9a9893]"
+          >
             {t("userMenu.languageLockedWhileReplying")}
           </p>
         )}
@@ -73,8 +82,11 @@ export function UserMenu({ userInitial }: UserMenuProps) {
             <DropdownMenuRadioItem
               key={l}
               value={l}
-              disabled={languageLocked}
-              className={`${ITEM_CLASS} text-sm`}
+              aria-disabled={languageLocked || undefined}
+              aria-describedby={languageLocked ? LOCKED_HINT_ID : undefined}
+              // A locked item does nothing, so it must not dismiss the menu.
+              onSelect={languageLocked ? (e) => e.preventDefault() : undefined}
+              className={`${ITEM_CLASS} text-sm aria-disabled:opacity-50`}
             >
               {LOCALES[l].displayName}
             </DropdownMenuRadioItem>

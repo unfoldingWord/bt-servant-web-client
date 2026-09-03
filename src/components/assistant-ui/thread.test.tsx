@@ -377,6 +377,40 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       });
     });
 
+    // Regression: a returning user whose stored preference has not loaded
+    // yet must not be hinted with the browser's language; absence lets the
+    // worker use what it has stored. Once loaded, the stored code is sent.
+    it(`sends no hint while a stored ${other} is still loading, then ${toResponseLanguage(other)} once it has`, async () => {
+      const harness = await renderThread({ locale, deferPreferences: true });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(1), WAIT);
+      expect(harness.streamBodies[0]).not.toHaveProperty(
+        "response_language_hint"
+      );
+      await screen.findByText(ENGINE_REPLY);
+
+      harness.answerPreferences({
+        response_language: toResponseLanguage(other),
+      });
+      await harness.preferencesLoaded();
+      await waitFor(
+        () => expect(document.documentElement.lang).toBe(other),
+        WAIT
+      );
+
+      await user.type(screen.getByRole("textbox"), "again");
+      await user.click(
+        screen.getByRole("button", { name: otherDict["composer.send"] })
+      );
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(2), WAIT);
+      expect(harness.streamBodies[1]).toMatchObject({
+        message: "again",
+        response_language_hint: toResponseLanguage(other),
+      });
+    });
+
     // Regression: the locale must never flip under an animating reply, even
     // when the mount-time load settles mid-stream: the loaded value is held
     // and applied once the reply has landed.
@@ -440,12 +474,21 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
         screen.getByRole("button", { name: dict["userMenu.trigger"] })
       );
       await screen.findByRole("menu");
-      expect(
-        screen.getByText(dict["userMenu.languageLockedWhileReplying"])
-      ).toBeInTheDocument();
+      const hint = screen.getByText(
+        dict["userMenu.languageLockedWhileReplying"]
+      );
       for (const item of screen.getAllByRole("menuitemradio")) {
         expect(item).toHaveAttribute("aria-disabled", "true");
+        // The reason is announced with the item...
+        expect(item).toHaveAttribute("aria-describedby", hint.id);
+        expect(item).toHaveAccessibleDescription(
+          dict["userMenu.languageLockedWhileReplying"]
+        );
       }
+      // ...which the keyboard can still reach: Radix `disabled` would drop
+      // it out of arrow navigation.
+      await user.keyboard("{ArrowDown}");
+      expect(document.activeElement).toHaveAttribute("role", "menuitemradio");
       // A click on a locked item changes nothing.
       await user.click(
         screen.getByRole("menuitemradio", {
@@ -468,6 +511,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       );
       for (const item of screen.getAllByRole("menuitemradio")) {
         expect(item).not.toHaveAttribute("aria-disabled");
+        expect(item).not.toHaveAttribute("aria-describedby");
       }
     });
   });

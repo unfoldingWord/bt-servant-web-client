@@ -37,10 +37,20 @@ interface LocalePreferenceContextValue {
    */
   ready: boolean;
   /**
+   * What every chat request should carry as `response_language_hint`:
+   * `undefined` while the load is in flight or when the stored code is not
+   * one this client knows (absent = the worker uses what it has stored), the
+   * browser-derived code once an empty GET has come back (the seed PUT may
+   * still be pending), the stored code after a stored GET, the chosen code
+   * from the moment `choose` is called. Never the chrome's fallback locale.
+   */
+  responseLanguageHint: string | undefined;
+  /**
    * Persists `locale` as the user's `response_language`, then applies it to
-   * the chrome. A load still in flight is superseded, so its result can never
-   * revert the choice. Never rejects: a failed write is logged with context
-   * and the current locale stays.
+   * the chrome (through the same hold as the load: never under an animating
+   * reply). A load or an earlier `choose` still in flight is superseded, so
+   * neither can revert or overwrite the latest pick. Never rejects: a failed
+   * write is logged with context and the current locale stays.
    */
   choose: (locale: Locale) => Promise<void>;
 }
@@ -100,18 +110,36 @@ export async function saveLocalePreference(
  */
 export function LocalePreferenceProvider({
   hold = false,
+  onResponseLanguageHintChange,
   children,
 }: {
   hold?: boolean;
+  /**
+   * Reports `responseLanguageHint` upward for the component that owns the
+   * chat runtime and renders this provider (`AssistantProvider`), which
+   * cannot read the context from above.
+   */
+  onResponseLanguageHintChange?: (hint: string | undefined) => void;
   children: ReactNode;
 }) {
   const { locale, setLocale } = useLocale();
   const [ready, setReady] = useState(false);
-  // What the load delivered and has not applied yet (held, or one render
-  // away from applying).
+  const [responseLanguageHint, setResponseLanguageHint] = useState<
+    string | undefined
+  >(undefined);
+  // What the load or a pick delivered and has not applied yet (held, or one
+  // render away from applying).
   const [loaded, setLoaded] = useState<Locale | null>(null);
   // The mount-time load, so `choose` can cancel it.
   const loadRef = useRef<AbortController | null>(null);
+  // The latest `choose` PUT, so the next pick can cancel it, and its
+  // generation, so a stale completion is ignored.
+  const chooseAbortRef = useRef<AbortController | null>(null);
+  const chooseGenerationRef = useRef(0);
+
+  useEffect(() => {
+    onResponseLanguageHintChange?.(responseLanguageHint);
+  }, [responseLanguageHint, onResponseLanguageHintChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -124,9 +152,20 @@ export function LocalePreferenceProvider({
         if (signal.aborted) return;
 
         if (stored.response_language) {
-          setLoaded(normalizeLocale(stored.response_language));
+          const preferred = normalizeLocale(stored.response_language);
+          setLoaded(preferred);
+          // Hint only with a code this client knows; an unsupported stored
+          // code falls back to the default locale for the chrome alone, and
+          // the worker keeps replying in what it has stored.
+          setResponseLanguageHint(
+            toResponseLanguage(preferred) === stored.response_language
+              ? stored.response_language
+              : undefined
+          );
         } else {
-          await saveLocalePreference(getClientLocale(), signal);
+          const browser = getClientLocale();
+          setResponseLanguageHint(toResponseLanguage(browser));
+          await saveLocalePreference(browser, signal);
         }
       } catch (error) {
         // Superseded by `choose` or unmounted mid-flight: nothing to report.
@@ -143,37 +182,43 @@ export function LocalePreferenceProvider({
     return () => controller.abort();
   }, []);
 
-  // Apply the loaded value once nothing is animating.
+  // Apply the loaded or chosen value once nothing is animating.
   useEffect(() => {
     if (loaded === null || hold) return;
     setLoaded(null);
     setLocale(loaded);
   }, [loaded, hold, setLocale]);
 
-  const choose = useCallback(
-    async (next: Locale) => {
-      // The user's pick supersedes a load still in flight or held: however
-      // late its GET resolves, it must not revert what the user just chose.
-      loadRef.current?.abort();
-      loadRef.current = null;
-      setLoaded(null);
-      setReady(true);
-      try {
-        await saveLocalePreference(next);
-        setLocale(next);
-      } catch (error) {
-        console.error(
-          "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
-          { locale: next, error }
-        );
-      }
-    },
-    [setLocale]
-  );
+  const choose = useCallback(async (next: Locale) => {
+    // The user's pick supersedes a load still in flight or held, and any
+    // earlier pick whose PUT has not landed: however late either resolves,
+    // it must not revert or overwrite what the user chose last.
+    loadRef.current?.abort();
+    loadRef.current = null;
+    chooseAbortRef.current?.abort();
+    const controller = new AbortController();
+    chooseAbortRef.current = controller;
+    const generation = ++chooseGenerationRef.current;
+    setLoaded(null);
+    setReady(true);
+    setResponseLanguageHint(toResponseLanguage(next));
+    try {
+      await saveLocalePreference(next, controller.signal);
+      if (generation !== chooseGenerationRef.current) return; // superseded
+      // Through the apply effect, so a pick that lands mid-reply waits too.
+      setLoaded(next);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error(
+        "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
+        { locale: next, error }
+      );
+    }
+  }, []);
 
   const value = useMemo<LocalePreferenceContextValue>(
-    () => ({ locale, ready, choose }),
-    [locale, ready, choose]
+    () => ({ locale, ready, responseLanguageHint, choose }),
+    [locale, ready, responseLanguageHint, choose]
   );
 
   return (
