@@ -400,8 +400,6 @@ const ChatMessage: FC = () => {
 
 const UserMessage: FC = () => {
   const t = useT();
-  // The sentinel is persisted data written by use-chat-runtime.ts, not copy
-  // — it is never translated.
   const isVoiceMessage = useAssistantState(({ message }) => {
     const firstPart = message.content[0];
     return (

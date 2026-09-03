@@ -8,11 +8,14 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { track } from "@/lib/analytics";
 import type { MessageKey } from "@/i18n";
 import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
-import type {
-  Attachment,
-  ChatResponse,
-  ChatHistoryResponse,
-  SSEEvent,
+import {
+  isWorkerStatusKey,
+  TTS_STATUS_KEYS,
+  type Attachment,
+  type ChatResponse,
+  type ChatHistoryResponse,
+  type SSEEvent,
+  type WorkerStatusKey,
 } from "@/types/engine";
 
 type TimeoutReason = "hard_max_timeout" | "inactivity_timeout";
@@ -30,24 +33,24 @@ export type StatusKey = Extract<MessageKey, `status.${string}`>;
 /**
  * What the loading indicator shows: a key the view translates, or status text
  * from the worker, rendered as-is (the worker localizes it from the same
- * stored preference; its structured `key` only drives `isTtsStatus`).
+ * stored preference). A worker status also carries its structured `key` when
+ * it is one the client knows, so the view can act on it later.
  */
-export type RuntimeStatus = { key: StatusKey } | { text: string };
+export type RuntimeStatus =
+  | { key: StatusKey }
+  | { text: string; key?: WorkerStatusKey };
 
 // TTS can take minutes for long responses, so a TTS status extends the
-// inactivity window. The worker's structured `key` (bt-servant-worker#407:
-// `status_tts_generating`, `status_tts_still_generating`) is authoritative
-// whenever present, since `message` is localized and may contain no English.
-// The keyword match remains for worker versions that send no key. Both are
+// inactivity window. The worker's structured `key` (bt-servant-worker#407) is
+// authoritative whenever it is one we know, since `message` is localized and
+// may contain no English. An unknown key (a newer worker) and no key (an
+// older worker) both fall back to the keyword match on `message`. Both are
 // data, not copy: never localize them.
-const TTS_STATUS_KEY_PREFIX = "status_tts_";
 const TTS_STATUS_KEYWORDS = ["audio", "tts", "speech"];
 
-function isTtsStatus(event: Extract<SSEEvent, { type: "status" }>): boolean {
-  if (event.key !== undefined) {
-    return event.key.startsWith(TTS_STATUS_KEY_PREFIX);
-  }
-  const statusLower = event.message.toLowerCase();
+function isTtsStatus(message: string, key?: WorkerStatusKey): boolean {
+  if (key !== undefined) return TTS_STATUS_KEYS.has(key);
+  const statusLower = message.toLowerCase();
   return TTS_STATUS_KEYWORDS.some((keyword) => statusLower.includes(keyword));
 }
 
@@ -324,8 +327,7 @@ export function useChatRuntime() {
         setMessages((prev) => [...prev, pending.message]);
       }
 
-      // Add user message. The sentinel is data (persisted in history,
-      // compared by equality in thread.tsx) — never localize it.
+      // Add user message
       const userMessage = createMessage(
         `user-${Date.now()}`,
         "user",
@@ -440,10 +442,21 @@ export function useChatRuntime() {
 
               if (parsed.type === "status") {
                 // The worker's message is already localized; render as-is.
-                setStatus({ text: parsed.message });
+                const key =
+                  parsed.key !== undefined && isWorkerStatusKey(parsed.key)
+                    ? parsed.key
+                    : undefined;
+                setStatus(
+                  key === undefined
+                    ? { text: parsed.message }
+                    : { text: parsed.message, key }
+                );
                 // Extend the inactivity window for every audio request, and
                 // for a text request that unexpectedly reaches TTS.
-                if (isAudioRequestRef.current || isTtsStatus(parsed)) {
+                if (
+                  isAudioRequestRef.current ||
+                  isTtsStatus(parsed.message, key)
+                ) {
                   inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
                 }
               } else if (parsed.type === "progress") {

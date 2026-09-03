@@ -6,6 +6,9 @@ import { createSseStream, type SseStream } from "./sse";
 // A fetch router standing in for the BFF (`/api/*`). Installed as the global
 // `fetch`; the vitest config's `unstubGlobals` removes it after each test.
 
+/** The preference route, for tests that override or await it. */
+export const PREFERENCES_ROUTE = "/api/preferences";
+
 export type RouteHandler = (
   url: string,
   init?: RequestInit
@@ -45,6 +48,8 @@ export interface FakeBff {
   bodyConsumed: (pathname: string) => Promise<void>;
   /** `bodyConsumed("/api/chat/history")`: the thread shows the branch the user would see. */
   historyLoaded: () => Promise<void>;
+  /** `bodyConsumed(PREFERENCES_ROUTE)`: the stored preference (if any) has been applied. */
+  preferencesLoaded: () => Promise<void>;
 }
 
 function json(body: unknown): Response {
@@ -85,7 +90,7 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
       streams.push(stream);
       return stream.response;
     },
-    "/api/preferences": (_url, init) => {
+    [PREFERENCES_ROUTE]: (_url, init) => {
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         preferencePuts.push(body);
@@ -130,5 +135,7 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     preferencePuts,
     bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
     historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
+    preferencesLoaded: () =>
+      waitConsumed("preferencesLoaded", PREFERENCES_ROUTE),
   };
 }

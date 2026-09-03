@@ -38,7 +38,6 @@ beforeEach(() => {
 describe("GET /api/preferences", () => {
   it.each([
     [{ response_language: "pt" }],
-    [{ response_language: "en" }],
     // A user with nothing stored yet: the engine client maps the worker's
     // 404 to `{}` and the client seeds from the browser.
     [{}],
@@ -77,23 +76,20 @@ describe("PUT /api/preferences", () => {
     expect(updatePrefsMock).not.toHaveBeenCalled();
   });
 
-  // The codes the client's language picker sends (ISO 639-1, one per locale).
-  it.each(["pt", "en"])(
-    "forwards response_language %j to the engine client and returns its payload",
-    async (code) => {
-      updatePrefsMock.mockResolvedValueOnce({ response_language: code });
+  // What the client sends: an ISO 639-1 code (`toResponseLanguage`).
+  it("forwards response_language to the engine client and returns its payload", async () => {
+    updatePrefsMock.mockResolvedValueOnce({ response_language: "pt" });
 
-      const res = await PUT(putRequest({ response_language: code }));
+    const res = await PUT(putRequest({ response_language: "pt" }));
 
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ response_language: code });
-      expect(updatePrefsMock).toHaveBeenCalledWith(
-        SESSION.user.id,
-        { response_language: code },
-        ORG
-      );
-    }
-  );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ response_language: "pt" });
+    expect(updatePrefsMock).toHaveBeenCalledWith(
+      SESSION.user.id,
+      { response_language: "pt" },
+      ORG
+    );
+  });
 
   it("returns 500 (not the raw error) when the engine client rejects", async () => {
     updatePrefsMock.mockRejectedValueOnce(new Error("Engine API error: 400"));

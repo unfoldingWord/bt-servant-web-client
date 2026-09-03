@@ -39,12 +39,12 @@ export function normalizeLocale(input: string | undefined | null): Locale {
 
 /**
  * The code the worker stores as `response_language` for `locale`: the
- * registry's first primary subtag, an ISO 639-1 code (`pt-BR` → `pt`,
+ * registry's `responseLanguage`, an ISO 639-1 code (`pt-BR` → `pt`,
  * `en` → `en`). The worker validates it against `/^[a-z]{2}$/`, and
  * `normalizeLocale()` maps it back to the same locale.
  */
 export function toResponseLanguage(locale: Locale): string {
-  return LOCALES[locale].primaries[0];
+  return LOCALES[locale].responseLanguage;
 }
 
 /**

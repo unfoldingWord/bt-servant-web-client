@@ -56,4 +56,6 @@ afterEach(() => {
   // an open stream, releasing an <audio> element) log too.
   cleanup();
   assertNoReactWarnings();
+  // LocaleProvider writes <html lang>; jsdom's document outlives the test.
+  document.documentElement.lang = "";
 });

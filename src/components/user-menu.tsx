@@ -13,8 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { saveLocalePreference } from "@/hooks/use-preferred-locale";
-import { LOCALES, SUPPORTED_LOCALES, useLocale, useT } from "@/i18n";
+import { useChatContext } from "@/components/providers/assistant-provider";
+import { useLocalePreference } from "@/components/providers/locale-preference-provider";
+import { LOCALES, SUPPORTED_LOCALES, useT } from "@/i18n";
 
 interface UserMenuProps {
   userInitial: string;
@@ -25,28 +26,23 @@ const ITEM_CLASS =
 
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
-  const { locale, setLocale } = useLocale();
+  const { locale, choose } = useLocalePreference();
+  // Never flip the locale under an animating reply: the picker is locked
+  // while a reply is in flight and says so.
+  const { isLoading: languageLocked } = useChatContext();
   const t = useT();
 
   useEffect(() => {
     getCsrfToken().then((token) => setCsrfToken(token || ""));
   }, []);
 
-  // One coupled setting: persist first, then switch the chrome, so the
-  // interface and the reply language never disagree. On failure the radio
-  // snaps back (it is controlled by `locale`) and the cause is logged.
-  const selectLocale = async (value: string) => {
+  // The provider persists first, then switches the chrome, so the interface
+  // and the reply language never disagree; on failure it logs and the radio
+  // (controlled by `locale`) snaps back.
+  const selectLocale = (value: string) => {
     const next = SUPPORTED_LOCALES.find((l) => l === value);
     if (!next || next === locale) return;
-    try {
-      await saveLocalePreference(next);
-      setLocale(next);
-    } catch (error) {
-      console.error("[UserMenu] could not save the language preference", {
-        locale: next,
-        error,
-      });
-    }
+    void choose(next);
   };
 
   return (
@@ -67,14 +63,17 @@ export function UserMenu({ userInitial }: UserMenuProps) {
           <LanguagesIcon className="h-4 w-4" />
           {t("userMenu.language")}
         </DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={locale}
-          onValueChange={(value) => void selectLocale(value)}
-        >
+        {languageLocked && (
+          <p className="px-2 pb-1 text-xs text-[#6b6a68] italic dark:text-[#9a9893]">
+            {t("userMenu.languageLockedWhileReplying")}
+          </p>
+        )}
+        <DropdownMenuRadioGroup value={locale} onValueChange={selectLocale}>
           {SUPPORTED_LOCALES.map((l) => (
             <DropdownMenuRadioItem
               key={l}
               value={l}
+              disabled={languageLocked}
               className={`${ITEM_CLASS} text-sm`}
             >
               {LOCALES[l].displayName}

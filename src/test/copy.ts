@@ -10,6 +10,7 @@ export {
   SUPPORTED_LOCALES,
   en,
   ptBR,
+  toResponseLanguage,
   type Dictionary,
   type Locale,
   type MessageKey,

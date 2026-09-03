@@ -39,6 +39,12 @@ describe("locale registry", () => {
     );
   });
 
+  it("gives every locale a unique ISO 639-1 responseLanguage (the worker's ISO_639_1_PATTERN)", () => {
+    const codes = SUPPORTED_LOCALES.map((l) => LOCALES[l].responseLanguage);
+    for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
   it("gives every locale a distinct, non-empty native display name", () => {
     const names = SUPPORTED_LOCALES.map((l) => LOCALES[l].displayName);
     for (const name of names) expect(name.trim()).not.toBe("");
@@ -56,10 +62,10 @@ describe("toResponseLanguage()", () => {
     expect(toResponseLanguage(locale)).toBe(expected);
   });
 
-  it("yields, for every locale, an ISO 639-1 code the worker accepts that normalizes back to the same locale", () => {
+  it("reads the registry's responseLanguage, which normalizes back to the same locale", () => {
     for (const locale of SUPPORTED_LOCALES) {
       const code = toResponseLanguage(locale);
-      expect(code, locale).toMatch(/^[a-z]{2}$/); // worker: ISO_639_1_PATTERN
+      expect(code, locale).toBe(LOCALES[locale].responseLanguage);
       expect(normalizeLocale(code), locale).toBe(locale);
     }
   });

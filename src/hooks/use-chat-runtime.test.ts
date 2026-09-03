@@ -348,9 +348,10 @@ describe("useChatRuntime — timeouts", () => {
         key,
         message: "Gerando resposta em áudio...",
       });
-      // The message is rendered as-is; the key is not shown.
+      // The message is rendered as-is; the key rides along for the view.
       expect(result.current.status).toEqual({
         text: "Gerando resposta em áudio...",
+        key,
       });
 
       await advance(125_000);
@@ -367,6 +368,10 @@ describe("useChatRuntime — timeouts", () => {
       key: "status_processing",
       message: "Processando sua solicitação...",
     });
+    expect(result.current.status).toEqual({
+      text: "Processando sua solicitação...",
+      key: "status_processing",
+    });
 
     await advance(115_000);
     expect(stream.signal?.aborted).toBe(false);
@@ -374,6 +379,29 @@ describe("useChatRuntime — timeouts", () => {
     expect(stream.signal?.aborted).toBe(true);
     expect(result.current.isLoading).toBe(false);
   });
+
+  // A key the client does not know (a newer worker) is tolerated: it is not
+  // carried on the status and the message heuristic decides the window.
+  it.each([
+    ["Generating audio response", false],
+    ["Processing", true],
+  ])(
+    "an unknown key with message %j falls back to the keyword heuristic (aborted at 125s: %s)",
+    async (message, abortedAfterDefault) => {
+      const { result, stream } = await startStream();
+
+      await pushAndFlush(stream, {
+        type: "status",
+        key: "status_something_new",
+        message,
+      });
+      expect(result.current.status).toEqual({ text: message });
+      expect("key" in result.current.status!).toBe(false);
+
+      await advance(125_000);
+      expect(stream.signal?.aborted).toBe(abortedAfterDefault);
+    }
+  );
 
   it("a new event resets the inactivity clock", async () => {
     const { result, stream } = await startStream();

@@ -2,8 +2,8 @@
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime, type RuntimeStatus } from "@/hooks/use-chat-runtime";
-import { usePreferredLocale } from "@/hooks/use-preferred-locale";
 import { createContext, useContext, ReactNode } from "react";
+import { LocalePreferenceProvider } from "./locale-preference-provider";
 
 interface ChatContextValue {
   sendMessage: (
@@ -40,10 +40,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     isCompleting,
   } = useChatRuntime();
 
-  // Stored language preference (one setting with the reply language). Held
-  // while a reply is in flight so the chrome never flips mid-stream.
-  usePreferredLocale({ paused: isLoading });
-
   return (
     <ChatContext.Provider
       value={{
@@ -56,9 +52,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         isCompleting,
       }}
     >
-      <AssistantRuntimeProvider runtime={runtime}>
-        {children}
-      </AssistantRuntimeProvider>
+      {/* The stored language preference lives with the authenticated area:
+          its BFF route needs a session, and the picker reads `isLoading`
+          from ChatContext to lock itself while a reply streams. */}
+      <LocalePreferenceProvider>
+        <AssistantRuntimeProvider runtime={runtime}>
+          {children}
+        </AssistantRuntimeProvider>
+      </LocalePreferenceProvider>
     </ChatContext.Provider>
   );
 }

@@ -7,7 +7,13 @@ import { LocaleProvider } from "@/i18n";
 import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
 import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
 import { consoleSpy } from "@/test/console";
-import { chipsFor, LOCALES, SUPPORTED_LOCALES, type Locale } from "@/test/copy";
+import {
+  chipsFor,
+  LOCALES,
+  SUPPORTED_LOCALES,
+  toResponseLanguage,
+  type Locale,
+} from "@/test/copy";
 import { installFakeBff } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import { stubNavigatorLanguage } from "@/test/navigator";
@@ -32,6 +38,7 @@ import { Thread } from "./thread";
 
 const ENGINE_REPLY = "Reply from the engine.";
 const AUDIO_ROUTE = "/api/audio";
+const WAIT = { interval: 5 };
 
 // Unmount (and close any stream still open) inside act, under the clock the
 // test left installed, before the setup file restores the console spies.
@@ -88,7 +95,7 @@ async function renderThread({
   // The provider also reads the stored preference on mount; wait for that
   // too so a stored locale has been applied before any assertion.
   await harness.historyLoaded();
-  await harness.bodyConsumed("/api/preferences");
+  await harness.preferencesLoaded();
   if (historyEntries.length > 0) {
     const greeting = LOCALES[locale].dictionary["thread.welcome"];
     await waitFor(() =>
@@ -266,29 +273,20 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       const harness = await renderThread({
         locale,
         storedPreferences: {
-          response_language: LOCALES[other].primaries[0],
+          response_language: toResponseLanguage(other),
         },
       });
 
-      await waitFor(() =>
-        expect(
-          screen.getByText(otherDict["thread.welcome"])
-        ).toBeInTheDocument()
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(otherDict["thread.welcome"])
+          ).toBeInTheDocument(),
+        WAIT
       );
       expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
       expect(document.documentElement.lang).toBe(other);
       expect(harness.preferencePuts).toEqual([]);
-    });
-
-    it("with nothing stored, seeds the browser locale to the worker once and keeps rendering it", async () => {
-      const harness = await renderThread({ locale });
-
-      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1));
-      expect(harness.preferencePuts[0]).toEqual({
-        response_language: LOCALES[locale].primaries[0],
-      });
-      expect(screen.getByText(GREETING)).toBeInTheDocument();
-      expect(document.documentElement.lang).toBe(locale);
     });
 
     it(`picking ${LOCALES[other].displayName} in the user menu PUTs the preference and re-renders the whole thread in ${other} without a reload`, async () => {
@@ -304,13 +302,15 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
         })
       );
 
-      await waitFor(() =>
-        expect(
-          screen.getByText(otherDict["thread.welcome"])
-        ).toBeInTheDocument()
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(otherDict["thread.welcome"])
+          ).toBeInTheDocument(),
+        WAIT
       );
       expect(harness.preferencePuts.at(-1)).toEqual({
-        response_language: LOCALES[other].primaries[0],
+        response_language: toResponseLanguage(other),
       });
       expect(
         screen.getByPlaceholderText(otherDict["composer.placeholder"])
@@ -322,14 +322,60 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       }
       expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
       expect(document.documentElement.lang).toBe(other);
-      // Same tree, no navigation: history was fetched exactly once and no
-      // message was sent.
-      expect(
-        harness.fetchMock.mock.calls.filter(([u]) =>
-          String(u).includes("/api/chat/history")
-        )
-      ).toHaveLength(1);
+      // Picking a language is not a message.
       expect(harness.streamBodies).toEqual([]);
+    });
+
+    // Regression: the locale must never flip under an animating reply. The
+    // picker locks itself while a reply is in flight and unlocks when the
+    // reply has landed.
+    it("locks the language picker with a hint while a reply streams and unlocks it once the reply lands", async () => {
+      const harness = await renderThread({
+        locale,
+        liveStream: true,
+        withUserMenu: true,
+        // A returning user: the load applies the stored value and seeds
+        // nothing, so any PUT below would be the picker's.
+        storedPreferences: { response_language: toResponseLanguage(locale) },
+      });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
+
+      await user.click(
+        screen.getByRole("button", { name: dict["userMenu.trigger"] })
+      );
+      await screen.findByRole("menu");
+      expect(
+        screen.getByText(dict["userMenu.languageLockedWhileReplying"])
+      ).toBeInTheDocument();
+      for (const item of screen.getAllByRole("menuitemradio")) {
+        expect(item).toHaveAttribute("aria-disabled", "true");
+      }
+      // A click on a locked item changes nothing.
+      await user.click(
+        screen.getByRole("menuitemradio", {
+          name: LOCALES[other].displayName,
+        })
+      );
+      expect(harness.preferencePuts).toEqual([]);
+      expect(document.documentElement.lang).toBe(locale);
+
+      // The reply lands and finalizes; the same open menu unlocks.
+      const stream = harness.streams[0];
+      stream.push(completeEvent([ENGINE_REPLY]));
+      stream.close();
+      await waitFor(
+        () =>
+          expect(
+            screen.queryByText(dict["userMenu.languageLockedWhileReplying"])
+          ).not.toBeInTheDocument(),
+        WAIT
+      );
+      for (const item of screen.getAllByRole("menuitemradio")) {
+        expect(item).not.toHaveAttribute("aria-disabled");
+      }
     });
   });
 

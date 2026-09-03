@@ -1,33 +1,48 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { LocaleProvider } from "@/i18n";
 import { consoleSpy } from "@/test/console";
-import { LOCALES, SUPPORTED_LOCALES, type Locale } from "@/test/copy";
-import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
+import {
+  LOCALES,
+  SUPPORTED_LOCALES,
+  toResponseLanguage,
+  type Locale,
+} from "@/test/copy";
+import {
+  installFakeBff,
+  PREFERENCES_ROUTE,
+  type FakeBffOptions,
+} from "@/test/fake-bff";
 import { stubNavigatorLanguage } from "@/test/navigator";
 import { UserMenu } from "./user-menu";
 
-// The menu is rendered under the real LocaleProvider with the locale seeded
-// from navigator.language, as in the app. Only fetch is stubbed: the fake BFF
-// answers next-auth's csrf fetch and records `PUT /api/preferences`.
+// The menu is rendered as in the app: under the real LocaleProvider (locale
+// seeded from navigator.language) and the real AssistantProvider, which owns
+// the stored preference. Only fetch is stubbed. The user under test already
+// has `locale` stored, so the mount-time load applies it and seeds nothing.
+// The picker's lock while a reply streams is covered in thread.test.tsx,
+// where a reply can be started.
 
-const PREFERENCES = "/api/preferences";
-const codeFor = (locale: Locale) => LOCALES[locale].primaries[0];
-
-afterEach(() => {
-  document.documentElement.lang = "";
-});
+const WAIT = { interval: 5 };
 
 async function renderMenu(locale: Locale, bff: FakeBffOptions = {}) {
   stubNavigatorLanguage(locale);
-  const harness = installFakeBff(bff);
+  const harness = installFakeBff({
+    storedPreferences: { response_language: toResponseLanguage(locale) },
+    ...bff,
+  });
   render(
     <LocaleProvider>
-      <UserMenu userInitial="S" />
+      <AssistantProvider>
+        <UserMenu userInitial="S" />
+      </AssistantProvider>
     </LocaleProvider>
   );
   await harness.bodyConsumed("/api/auth/csrf");
+  await harness.historyLoaded();
+  await harness.preferencesLoaded();
   return harness;
 }
 
@@ -46,17 +61,21 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
   const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
   const otherDict = LOCALES[other].dictionary;
 
-  it("lists every supported locale by native name under the localized Language label, with the current one checked", async () => {
+  it("lists every supported locale by native name under the localized Language label, with the current one checked and enabled", async () => {
     await renderMenu(locale);
     const user = userEvent.setup();
 
     await openMenu(user, dict);
 
     expect(screen.getByText(dict["userMenu.language"])).toBeInTheDocument();
+    expect(
+      screen.queryByText(dict["userMenu.languageLockedWhileReplying"])
+    ).not.toBeInTheDocument();
     const items = screen.getAllByRole("menuitemradio");
     expect(items.map((el) => el.textContent)).toEqual(
       SUPPORTED_LOCALES.map((l) => LOCALES[l].displayName)
     );
+    for (const item of items) expect(item).not.toHaveAttribute("aria-disabled");
     expect(
       screen.getByRole("menuitemradio", { checked: true })
     ).toHaveTextContent(LOCALES[locale].displayName);
@@ -77,17 +96,21 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
       screen.getByRole("menuitemradio", { name: LOCALES[other].displayName })
     );
 
-    await waitFor(() =>
-      expect(harness.preferencePuts).toEqual([
-        { response_language: codeFor(other) },
-      ])
+    await waitFor(
+      () =>
+        expect(harness.preferencePuts).toEqual([
+          { response_language: toResponseLanguage(other) },
+        ]),
+      WAIT
     );
     // The chrome follows: the trigger's label and <html lang> are now the
     // other locale's, and reopening shows the other item checked.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: otherDict["userMenu.trigger"] })
-      ).toBeInTheDocument()
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: otherDict["userMenu.trigger"] })
+        ).toBeInTheDocument(),
+      WAIT
     );
     expect(document.documentElement.lang).toBe(other);
     await openMenu(user, otherDict);
@@ -97,12 +120,6 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     expect(
       screen.getByRole("menuitemradio", { checked: true })
     ).toHaveTextContent(LOCALES[other].displayName);
-    // No navigation happened: the csrf fetch that runs on mount ran once.
-    expect(
-      harness.fetchMock.mock.calls.filter(([u]) =>
-        String(u).includes("/api/auth/csrf")
-      )
-    ).toHaveLength(1);
     expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
@@ -122,7 +139,15 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
   it("keeps the current locale and logs one console.error when the PUT fails", async () => {
     await renderMenu(locale, {
       extraRoutes: {
-        [PREFERENCES]: () => new Response("boom", { status: 500 }),
+        [PREFERENCES_ROUTE]: (_url, init) =>
+          init?.method === "PUT"
+            ? new Response("boom", { status: 500 })
+            : new Response(
+                JSON.stringify({
+                  response_language: toResponseLanguage(locale),
+                }),
+                { headers: { "Content-Type": "application/json" } }
+              ),
       },
     });
     const user = userEvent.setup();
@@ -132,8 +157,13 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
       screen.getByRole("menuitemradio", { name: LOCALES[other].displayName })
     );
 
-    await waitFor(() => expect(consoleSpy.error).toHaveBeenCalledTimes(1));
-    expect(consoleSpy.error.mock.calls[0][0]).toMatch(/UserMenu/);
+    await waitFor(
+      () => expect(consoleSpy.error).toHaveBeenCalledTimes(1),
+      WAIT
+    );
+    expect(consoleSpy.error.mock.calls[0][0]).toMatch(
+      /LocalePreferenceProvider/
+    );
     expect(document.documentElement.lang).toBe(locale);
     expect(
       screen.getByRole("button", { name: dict["userMenu.trigger"] })

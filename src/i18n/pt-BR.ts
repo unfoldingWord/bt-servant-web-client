@@ -56,6 +56,7 @@ export const ptBR = {
   // User menu
   "userMenu.trigger": "Menu do usuário",
   "userMenu.language": "Idioma",
+  "userMenu.languageLockedWhileReplying": "Disponível após a resposta atual",
   "userMenu.signOut": "Sair",
   "userMenu.signOutDescription": "Encerrar sua sessão atual",
 
