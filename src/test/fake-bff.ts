@@ -27,6 +27,11 @@ export interface FakeBffOptions {
    * stored yet). A `PUT` merges into it, so a later `GET` sees the write.
    */
   storedPreferences?: UserPreferences;
+  /**
+   * Answers `PUT /api/preferences` after the body has been recorded in
+   * `preferencePuts`. Default: 200 with the merged stored value.
+   */
+  preferencePutResponse?: () => Response;
   /** Further routes keyed by pathname (the query string is ignored). */
   extraRoutes?: Record<string, RouteHandler>;
 }
@@ -40,16 +45,16 @@ export interface FakeBff {
   /** Parsed JSON bodies of every `PUT /api/preferences`, oldest first. */
   preferencePuts: Array<Record<string, unknown>>;
   /**
-   * Resolves once the client has consumed the response body for `pathname`
-   * (`json()`, `text()` or `blob()`). Any state the client sets in the same
-   * promise chain has landed by then, inside a `waitFor` window, so no act()
-   * warning is raised. Real timers only.
+   * Resolves once the client has consumed `times` response bodies for
+   * `pathname` (`json()`, `text()` or `blob()`; one per request). Any state
+   * the client sets in the same promise chain has landed by then, inside a
+   * `waitFor` window, so no act() warning is raised. Real timers only.
    */
-  bodyConsumed: (pathname: string) => Promise<void>;
+  bodyConsumed: (pathname: string, times?: number) => Promise<void>;
   /** `bodyConsumed("/api/chat/history")`: the thread shows the branch the user would see. */
   historyLoaded: () => Promise<void>;
-  /** `bodyConsumed(PREFERENCES_ROUTE)`: the stored preference (if any) has been applied. */
-  preferencesLoaded: () => Promise<void>;
+  /** `bodyConsumed(PREFERENCES_ROUTE, times)`: the `times`-th GET has been read and applied. */
+  preferencesLoaded: (times?: number) => Promise<void>;
 }
 
 function json(body: unknown): Response {
@@ -79,7 +84,7 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
   const streamBodies: Array<Record<string, unknown>> = [];
   const preferencePuts: Array<Record<string, unknown>> = [];
   let stored: UserPreferences = { ...opts.storedPreferences };
-  const consumed = new Set<string>();
+  const consumed = new Map<string, number>();
 
   const routes: Record<string, RouteHandler> = {
     "/api/chat/history": () => json({ entries: opts.historyEntries ?? [] }),
@@ -95,6 +100,7 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         preferencePuts.push(body);
         stored = { ...stored, ...body };
+        if (opts.preferencePutResponse) return opts.preferencePutResponse();
       }
       return json(stored);
     },
@@ -114,18 +120,19 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     const route = routes[pathname];
     if (!route) throw new Error(`Unexpected fetch: ${url}`);
     return trackConsumption(await route(url, init), () =>
-      consumed.add(pathname)
+      consumed.set(pathname, (consumed.get(pathname) ?? 0) + 1)
     );
   });
   vi.stubGlobal("fetch", fetchMock);
 
   // waitFor polls on the real clock; under vi.useFakeTimers() it would hang
   // until its own timeout, so fail fast with the caller's name instead.
-  const waitConsumed = async (name: string, pathname: string) => {
+  const waitConsumed = async (name: string, pathname: string, times = 1) => {
     if (vi.isFakeTimers()) throw new Error(`${name} requires real timers`);
-    await waitFor(() => expect(consumed.has(pathname)).toBe(true), {
-      interval: 5,
-    });
+    await waitFor(
+      () => expect(consumed.get(pathname) ?? 0).toBeGreaterThanOrEqual(times),
+      { interval: 5 }
+    );
   };
 
   return {
@@ -133,9 +140,10 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     streams,
     streamBodies,
     preferencePuts,
-    bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
+    bodyConsumed: (pathname, times) =>
+      waitConsumed("bodyConsumed", pathname, times),
     historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
-    preferencesLoaded: () =>
-      waitConsumed("preferencesLoaded", PREFERENCES_ROUTE),
+    preferencesLoaded: (times) =>
+      waitConsumed("preferencesLoaded", PREFERENCES_ROUTE, times),
   };
 }

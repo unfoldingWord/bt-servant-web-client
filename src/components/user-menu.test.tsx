@@ -10,11 +10,7 @@ import {
   toResponseLanguage,
   type Locale,
 } from "@/test/copy";
-import {
-  installFakeBff,
-  PREFERENCES_ROUTE,
-  type FakeBffOptions,
-} from "@/test/fake-bff";
+import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { stubNavigatorLanguage } from "@/test/navigator";
 import { UserMenu } from "./user-menu";
 
@@ -137,18 +133,8 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
   });
 
   it("keeps the current locale and logs one console.error when the PUT fails", async () => {
-    await renderMenu(locale, {
-      extraRoutes: {
-        [PREFERENCES_ROUTE]: (_url, init) =>
-          init?.method === "PUT"
-            ? new Response("boom", { status: 500 })
-            : new Response(
-                JSON.stringify({
-                  response_language: toResponseLanguage(locale),
-                }),
-                { headers: { "Content-Type": "application/json" } }
-              ),
-      },
+    const harness = await renderMenu(locale, {
+      preferencePutResponse: () => new Response("boom", { status: 500 }),
     });
     const user = userEvent.setup();
 
@@ -164,6 +150,7 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     expect(consoleSpy.error.mock.calls[0][0]).toMatch(
       /LocalePreferenceProvider/
     );
+    expect(harness.preferencePuts).toHaveLength(1); // attempted once
     expect(document.documentElement.lang).toBe(locale);
     expect(
       screen.getByRole("button", { name: dict["userMenu.trigger"] })

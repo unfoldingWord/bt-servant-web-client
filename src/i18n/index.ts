@@ -10,6 +10,7 @@ export {
 } from "./locales";
 export { getInitialLocale, normalizeLocale, t, toResponseLanguage } from "./t";
 export {
+  getClientLocale,
   LocaleProvider,
   useLocale,
   useT,

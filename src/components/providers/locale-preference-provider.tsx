@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  getClientLocale,
   normalizeLocale,
   toResponseLanguage,
   useLocale,
@@ -28,10 +29,11 @@ const PREFERENCES_URL = "/api/preferences";
 interface LocalePreferenceContextValue {
   locale: Locale;
   /**
-   * True once the mount-time load has settled: the stored value applied, the
-   * browser locale seeded, the request failed, or `choose` superseded it.
-   * Nothing waits on it today (the worker replies in the persisted language
-   * regardless); it is exposed for views that want to know.
+   * True once the mount-time load has settled: the stored value delivered
+   * (applied, or held while `hold` is true), the browser locale seeded, the
+   * request failed, or `choose` superseded it. Nothing waits on it today
+   * (the worker replies in the persisted language regardless); it is exposed
+   * for views that want to know.
    */
   ready: boolean;
   /**
@@ -84,31 +86,32 @@ export async function saveLocalePreference(
  * with `setLocale(normalizeLocale(it))` (an explicit choice beats the
  * browser; an unsupported code falls back to the default locale for the
  * chrome only); nothing stored means a first visit on any device, and the
- * browser-derived locale is seeded with one `PUT` so it follows the user.
- * Only the mount whose `GET` came back empty writes; an aborted mount
- * (unmount, StrictMode's extra effect run) never does. Failures are logged
- * with `console.error` and context and leave the browser locale in place.
+ * browser's locale (`getClientLocale()`, read at PUT time: during hydration
+ * React state may still hold the server snapshot) is seeded with one `PUT`
+ * so it follows the user. Only the mount whose `GET` came back empty writes;
+ * an aborted mount (unmount, StrictMode's extra effect run) never does.
+ * Failures are logged with `console.error` and context and leave the browser
+ * locale in place.
  *
- * `choose` is the user's explicit pick from the language picker; see the
- * context type. See docs/i18n.md, "The language preference".
+ * `hold` (a reply is in flight) defers applying a loaded value: the chrome
+ * never flips under an animating reply, and the value lands as soon as
+ * `hold` turns false. `choose` is the user's explicit pick from the language
+ * picker; see the context type. See docs/i18n.md, "The language preference".
  */
 export function LocalePreferenceProvider({
+  hold = false,
   children,
 }: {
+  hold?: boolean;
   children: ReactNode;
 }) {
   const { locale, setLocale } = useLocale();
   const [ready, setReady] = useState(false);
-  // Read at PUT time, not at mount: during hydration the provider may still
-  // be on its server snapshot when the effect first runs, and the browser
-  // locale only lands on the following render.
-  const localeRef = useRef(locale);
+  // What the load delivered and has not applied yet (held, or one render
+  // away from applying).
+  const [loaded, setLoaded] = useState<Locale | null>(null);
   // The mount-time load, so `choose` can cancel it.
   const loadRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    localeRef.current = locale;
-  }, [locale]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -121,16 +124,16 @@ export function LocalePreferenceProvider({
         if (signal.aborted) return;
 
         if (stored.response_language) {
-          setLocale(normalizeLocale(stored.response_language));
+          setLoaded(normalizeLocale(stored.response_language));
         } else {
-          await saveLocalePreference(localeRef.current, signal);
+          await saveLocalePreference(getClientLocale(), signal);
         }
       } catch (error) {
         // Superseded by `choose` or unmounted mid-flight: nothing to report.
         if (signal.aborted) return;
         console.error(
           "[LocalePreferenceProvider] could not sync response_language; keeping the browser locale",
-          { locale: localeRef.current, error }
+          { locale: getClientLocale(), error }
         );
       } finally {
         if (!signal.aborted) setReady(true);
@@ -138,14 +141,22 @@ export function LocalePreferenceProvider({
     })();
 
     return () => controller.abort();
-  }, [setLocale]);
+  }, []);
+
+  // Apply the loaded value once nothing is animating.
+  useEffect(() => {
+    if (loaded === null || hold) return;
+    setLoaded(null);
+    setLocale(loaded);
+  }, [loaded, hold, setLocale]);
 
   const choose = useCallback(
     async (next: Locale) => {
-      // The user's pick supersedes a load still in flight: however late its
-      // GET resolves, it must not revert what the user just chose.
+      // The user's pick supersedes a load still in flight or held: however
+      // late its GET resolves, it must not revert what the user just chose.
       loadRef.current?.abort();
       loadRef.current = null;
+      setLoaded(null);
       setReady(true);
       try {
         await saveLocalePreference(next);

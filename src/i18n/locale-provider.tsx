@@ -32,8 +32,13 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
 // subscribe is a no-op.
 const subscribeToNothing = () => () => {};
 
-/** `NEXT_PUBLIC_DEFAULT_LOCALE` (lets staging pin pt-BR) wins over the browser's language. */
-function getClientSnapshot(): Locale {
+/**
+ * The locale the browser resolves to once hydrated: `NEXT_PUBLIC_DEFAULT_LOCALE`
+ * (lets staging pin pt-BR) wins over `navigator.language`. Client only. Also
+ * what the preference provider seeds from, read at PUT time, because during
+ * hydration React state may still hold the server snapshot.
+ */
+export function getClientLocale(): Locale {
   return process.env.NEXT_PUBLIC_DEFAULT_LOCALE
     ? getInitialLocale()
     : normalizeLocale(navigator.language);
@@ -49,7 +54,7 @@ function getClientSnapshot(): Locale {
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const seeded = useSyncExternalStore(
     subscribeToNothing,
-    getClientSnapshot,
+    getClientLocale,
     getInitialLocale
   );
   const [override, setOverride] = useState<Locale | null>(null);

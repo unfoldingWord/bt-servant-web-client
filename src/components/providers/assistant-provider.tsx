@@ -52,10 +52,10 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         isCompleting,
       }}
     >
-      {/* The stored language preference lives with the authenticated area:
-          its BFF route needs a session, and the picker reads `isLoading`
-          from ChatContext to lock itself while a reply streams. */}
-      <LocalePreferenceProvider>
+      {/* The stored language preference lives with the authenticated area
+          (its BFF route needs a session). While a reply is in flight the
+          provider holds a loaded preference and the picker locks itself. */}
+      <LocalePreferenceProvider hold={isLoading}>
         <AssistantRuntimeProvider runtime={runtime}>
           {children}
         </AssistantRuntimeProvider>

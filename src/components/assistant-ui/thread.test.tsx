@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { UserMenu } from "@/components/user-menu";
@@ -14,7 +20,7 @@ import {
   toResponseLanguage,
   type Locale,
 } from "@/test/copy";
-import { installFakeBff } from "@/test/fake-bff";
+import { installFakeBff, PREFERENCES_ROUTE } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import { stubNavigatorLanguage } from "@/test/navigator";
 import { sseResponse } from "@/test/sse";
@@ -51,6 +57,7 @@ async function renderThread({
   locale = "en",
   withUserMenu = false,
   storedPreferences,
+  deferPreferences = false,
 }: {
   historyEntries?: ChatHistoryEntry[];
   /** Leave the stream open for the test to push events into. */
@@ -61,8 +68,14 @@ async function renderThread({
   withUserMenu?: boolean;
   /** What the worker has stored for this user; default nothing. */
   storedPreferences?: UserPreferences;
+  /**
+   * Leave `GET /api/preferences` unanswered until the test calls the returned
+   * `answerPreferences`; the mount-time load is then still in flight.
+   */
+  deferPreferences?: boolean;
 } = {}) {
   stubNavigatorLanguage(locale);
+  let answerPreferences!: (body: UserPreferences) => void;
   const harness = installFakeBff({
     historyEntries,
     storedPreferences,
@@ -70,6 +83,17 @@ async function renderThread({
       ? undefined
       : () => sseResponse([completeEvent([ENGINE_REPLY])]),
     extraRoutes: {
+      ...(deferPreferences && {
+        [PREFERENCES_ROUTE]: () =>
+          new Promise<Response>((resolve) => {
+            answerPreferences = (body) =>
+              resolve(
+                new Response(JSON.stringify(body), {
+                  headers: { "Content-Type": "application/json" },
+                })
+              );
+          }),
+      }),
       // AudioPlayer fetches the proxied clip and calls res.blob(); audio
       // bytes exercise its happy path (URL.createObjectURL is stubbed in
       // setup). Bytes, not a Blob body: jsdom's Blob has no stream() and
@@ -95,14 +119,14 @@ async function renderThread({
   // The provider also reads the stored preference on mount; wait for that
   // too so a stored locale has been applied before any assertion.
   await harness.historyLoaded();
-  await harness.preferencesLoaded();
+  if (!deferPreferences) await harness.preferencesLoaded();
   if (historyEntries.length > 0) {
     const greeting = LOCALES[locale].dictionary["thread.welcome"];
     await waitFor(() =>
       expect(screen.queryByText(greeting)).not.toBeInTheDocument()
     );
   }
-  return harness;
+  return { ...harness, answerPreferences };
 }
 
 describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
@@ -324,6 +348,48 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       expect(document.documentElement.lang).toBe(other);
       // Picking a language is not a message.
       expect(harness.streamBodies).toEqual([]);
+    });
+
+    // Regression: the locale must never flip under an animating reply, even
+    // when the mount-time load settles mid-stream: the loaded value is held
+    // and applied once the reply has landed.
+    it(`a stored ${other} that loads while a reply streams is applied only after the reply lands`, async () => {
+      const harness = await renderThread({
+        locale,
+        liveStream: true,
+        deferPreferences: true,
+      });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
+
+      harness.answerPreferences({
+        response_language: toResponseLanguage(other),
+      });
+      await harness.preferencesLoaded();
+      await act(async () => {});
+
+      // Mid-stream: still this locale.
+      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(locale);
+
+      const stream = harness.streams[0];
+      stream.push(completeEvent([ENGINE_REPLY]));
+      stream.close();
+      await screen.findByText(ENGINE_REPLY);
+
+      // The reply has landed: the held preference applies.
+      await waitFor(
+        () =>
+          expect(
+            screen.getByPlaceholderText(otherDict["composer.placeholder"])
+          ).toBeInTheDocument(),
+        WAIT
+      );
+      expect(document.documentElement.lang).toBe(other);
+      expect(harness.preferencePuts).toEqual([]);
+      expect(consoleSpy.error).not.toHaveBeenCalled();
     });
 
     // Regression: the locale must never flip under an animating reply. The

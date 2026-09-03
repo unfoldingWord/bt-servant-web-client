@@ -74,7 +74,11 @@ export function isWorkerStatusKey(key: string): key is WorkerStatusKey {
   return (WORKER_STATUS_KEYS as readonly string[]).includes(key);
 }
 
-/** The statuses during which the worker is synthesizing speech. */
+/**
+ * The statuses during which the worker is synthesizing speech. This set is
+ * the contract: a key outside it (say a future `status_tts_*_one/_other`
+ * split) keeps the default window until it is added here.
+ */
 export const TTS_STATUS_KEYS: ReadonlySet<WorkerStatusKey> = new Set([
   "status_tts_generating",
   "status_tts_still_generating",
