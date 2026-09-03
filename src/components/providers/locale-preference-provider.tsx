@@ -226,7 +226,25 @@ export function LocalePreferenceProvider({
             // and cancelling a PUT the server may already be processing
             // would release the chain while that write is still in the
             // air, letting the seed land after the pick after all.
-            await saveLocalePreference(browser);
+            try {
+              await saveLocalePreference(browser);
+            } catch (error) {
+              // A pick that arrived while this seed was in the air owns the
+              // outcome, so the user is unaffected — but the load's catch
+              // treats an aborted controller as nothing to report, which
+              // would hide a failing route. Report it here instead.
+              if (
+                generation !== chooseGenerationRef.current ||
+                signal.aborted
+              ) {
+                console.warn(
+                  "[LocalePreferenceProvider] an overtaken language write failed",
+                  { locale: browser, error }
+                );
+                return;
+              }
+              throw error;
+            }
           });
         }
       } catch (error) {
