@@ -2,6 +2,7 @@
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime, type RuntimeStatus } from "@/hooks/use-chat-runtime";
+import { usePreferredLocale } from "@/hooks/use-preferred-locale";
 import { createContext, useContext, ReactNode } from "react";
 
 interface ChatContextValue {
@@ -38,6 +39,10 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     finalizeComplete,
     isCompleting,
   } = useChatRuntime();
+
+  // Stored language preference (one setting with the reply language). Held
+  // while a reply is in flight so the chrome never flips mid-stream.
+  usePreferredLocale({ paused: isLoading });
 
   return (
     <ChatContext.Provider

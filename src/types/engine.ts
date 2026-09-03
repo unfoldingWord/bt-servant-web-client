@@ -55,7 +55,10 @@ export interface ChatHistoryResponse {
 
 // SSE event types for streaming endpoint (matching backend)
 export type SSEEvent =
-  | { type: "status"; message: string }
+  // `key` is the worker's stable status id (bt-servant-worker#407, e.g.
+  // `status_tts_generating`); `message` is already localized. Optional
+  // because older worker versions send only `message`.
+  | { type: "status"; message: string; key?: string }
   | { type: "progress"; text: string }
   | { type: "complete"; response: ChatResponse }
   | { type: "error"; error: string }

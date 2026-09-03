@@ -7,6 +7,7 @@ import {
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { track } from "@/lib/analytics";
 import type { MessageKey } from "@/i18n";
+import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
 import type {
   Attachment,
   ChatResponse,
@@ -28,10 +29,27 @@ export type StatusKey = Extract<MessageKey, `status.${string}`>;
 
 /**
  * What the loading indicator shows: a key the view translates, or status text
- * from the worker, rendered as-is (the worker's structured status `key`
- * replaces the text in #51 PR 3).
+ * from the worker, rendered as-is (the worker localizes it from the same
+ * stored preference; its structured `key` only drives `isTtsStatus`).
  */
 export type RuntimeStatus = { key: StatusKey } | { text: string };
+
+// TTS can take minutes for long responses, so a TTS status extends the
+// inactivity window. The worker's structured `key` (bt-servant-worker#407:
+// `status_tts_generating`, `status_tts_still_generating`) is authoritative
+// whenever present, since `message` is localized and may contain no English.
+// The keyword match remains for worker versions that send no key. Both are
+// data, not copy: never localize them.
+const TTS_STATUS_KEY_PREFIX = "status_tts_";
+const TTS_STATUS_KEYWORDS = ["audio", "tts", "speech"];
+
+function isTtsStatus(event: Extract<SSEEvent, { type: "status" }>): boolean {
+  if (event.key !== undefined) {
+    return event.key.startsWith(TTS_STATUS_KEY_PREFIX);
+  }
+  const statusLower = event.message.toLowerCase();
+  return TTS_STATUS_KEYWORDS.some((keyword) => statusLower.includes(keyword));
+}
 
 interface ChatMessage {
   id: string;
@@ -306,12 +324,12 @@ export function useChatRuntime() {
         setMessages((prev) => [...prev, pending.message]);
       }
 
-      // Add user message. "[Voice message]" is a data sentinel (persisted in
-      // history, compared by equality in thread.tsx) — never localize it.
+      // Add user message. The sentinel is data (persisted in history,
+      // compared by equality in thread.tsx) — never localize it.
       const userMessage = createMessage(
         `user-${Date.now()}`,
         "user",
-        text || "[Voice message]"
+        text || VOICE_MESSAGE_SENTINEL
       );
 
       setMessages((prev) => [...prev, userMessage]);
@@ -421,21 +439,12 @@ export function useChatRuntime() {
               lastEventTime = Date.now();
 
               if (parsed.type === "status") {
+                // The worker's message is already localized; render as-is.
                 setStatus({ text: parsed.message });
-                // TTS can take minutes for long responses — extend inactivity
-                // window for all audio requests, plus keyword fallback for
-                // text requests that unexpectedly generate audio
-                if (isAudioRequestRef.current) {
+                // Extend the inactivity window for every audio request, and
+                // for a text request that unexpectedly reaches TTS.
+                if (isAudioRequestRef.current || isTtsStatus(parsed)) {
                   inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
-                } else {
-                  const statusLower = parsed.message.toLowerCase();
-                  if (
-                    statusLower.includes("audio") ||
-                    statusLower.includes("tts") ||
-                    statusLower.includes("speech")
-                  ) {
-                    inactivityLimit = INACTIVITY_AUDIO_GEN_MS;
-                  }
                 }
               } else if (parsed.type === "progress") {
                 // Guard: ignore progress chunks that arrive after a complete/error

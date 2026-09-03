@@ -38,6 +38,16 @@ export function normalizeLocale(input: string | undefined | null): Locale {
 }
 
 /**
+ * The code the worker stores as `response_language` for `locale`: the
+ * registry's first primary subtag, an ISO 639-1 code (`pt-BR` → `pt`,
+ * `en` → `en`). The worker validates it against `/^[a-z]{2}$/`, and
+ * `normalizeLocale()` maps it back to the same locale.
+ */
+export function toResponseLanguage(locale: Locale): string {
+  return LOCALES[locale].primaries[0];
+}
+
+/**
  * The locale known before any browser signal — what the server renders,
  * the client hydrates with, and the global error boundary shows:
  * `NEXT_PUBLIC_DEFAULT_LOCALE` (build-time; inlined into both bundles, so

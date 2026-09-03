@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssistantProvider } from "@/components/providers/assistant-provider";
+import { UserMenu } from "@/components/user-menu";
 import { LocaleProvider } from "@/i18n";
-import type { ChatHistoryEntry } from "@/types/engine";
+import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
+import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
 import { consoleSpy } from "@/test/console";
 import { chipsFor, LOCALES, SUPPORTED_LOCALES, type Locale } from "@/test/copy";
 import { installFakeBff } from "@/test/fake-bff";
@@ -28,9 +30,6 @@ import { Thread } from "./thread";
 // way the app seeds it, from navigator.language on mount. Every suite runs
 // once per supported locale, reading its copy from that locale's dictionary.
 
-// The literal stored for a voice turn with no transcript. Kept local on
-// purpose: the test's point is that this literal never reaches the screen.
-const VOICE_SENTINEL = "[Voice message]";
 const ENGINE_REPLY = "Reply from the engine.";
 const AUDIO_ROUTE = "/api/audio";
 
@@ -43,16 +42,23 @@ async function renderThread({
   historyEntries = [],
   liveStream = false,
   locale = "en",
+  withUserMenu = false,
+  storedPreferences,
 }: {
   historyEntries?: ChatHistoryEntry[];
   /** Leave the stream open for the test to push events into. */
   liveStream?: boolean;
   /** Seeded through navigator.language, as in the browser. */
   locale?: Locale;
+  /** Also render the header's UserMenu (the language picker) next to the thread. */
+  withUserMenu?: boolean;
+  /** What the worker has stored for this user; default nothing. */
+  storedPreferences?: UserPreferences;
 } = {}) {
   stubNavigatorLanguage(locale);
   const harness = installFakeBff({
     historyEntries,
+    storedPreferences,
     onStream: liveStream
       ? undefined
       : () => sseResponse([completeEvent([ENGINE_REPLY])]),
@@ -70,6 +76,7 @@ async function renderThread({
   const { unmount } = render(
     <LocaleProvider>
       <AssistantProvider>
+        {withUserMenu && <UserMenu userInitial="S" />}
         <Thread />
       </AssistantProvider>
     </LocaleProvider>
@@ -78,7 +85,10 @@ async function renderThread({
   // The first paint is always the empty state (messages start as []). Wait
   // for history to be applied so the branch under test is the one the user
   // would actually see; for a non-empty thread that is the greeting leaving.
+  // The provider also reads the stored preference on mount; wait for that
+  // too so a stored locale has been applied before any assertion.
   await harness.historyLoaded();
+  await harness.bodyConsumed("/api/preferences");
   if (historyEntries.length > 0) {
     const greeting = LOCALES[locale].dictionary["thread.welcome"];
     await waitFor(() =>
@@ -248,6 +258,81 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
     });
   });
 
+  describe("language preference", () => {
+    const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
+    const otherDict = LOCALES[other].dictionary;
+
+    it(`a stored preference for ${other} wins over the browser's ${locale} on load`, async () => {
+      const harness = await renderThread({
+        locale,
+        storedPreferences: {
+          response_language: LOCALES[other].primaries[0],
+        },
+      });
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(otherDict["thread.welcome"])
+        ).toBeInTheDocument()
+      );
+      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(other);
+      expect(harness.preferencePuts).toEqual([]);
+    });
+
+    it("with nothing stored, seeds the browser locale to the worker once and keeps rendering it", async () => {
+      const harness = await renderThread({ locale });
+
+      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1));
+      expect(harness.preferencePuts[0]).toEqual({
+        response_language: LOCALES[locale].primaries[0],
+      });
+      expect(screen.getByText(GREETING)).toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(locale);
+    });
+
+    it(`picking ${LOCALES[other].displayName} in the user menu PUTs the preference and re-renders the whole thread in ${other} without a reload`, async () => {
+      const harness = await renderThread({ locale, withUserMenu: true });
+      const user = userEvent.setup();
+
+      await user.click(
+        screen.getByRole("button", { name: dict["userMenu.trigger"] })
+      );
+      await user.click(
+        screen.getByRole("menuitemradio", {
+          name: LOCALES[other].displayName,
+        })
+      );
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(otherDict["thread.welcome"])
+        ).toBeInTheDocument()
+      );
+      expect(harness.preferencePuts.at(-1)).toEqual({
+        response_language: LOCALES[other].primaries[0],
+      });
+      expect(
+        screen.getByPlaceholderText(otherDict["composer.placeholder"])
+      ).toBeInTheDocument();
+      for (const chip of chipsFor(otherDict)) {
+        expect(
+          screen.getByRole("button", { name: chip.label })
+        ).toBeInTheDocument();
+      }
+      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(other);
+      // Same tree, no navigation: history was fetched exactly once and no
+      // message was sent.
+      expect(
+        harness.fetchMock.mock.calls.filter(([u]) =>
+          String(u).includes("/api/chat/history")
+        )
+      ).toHaveLength(1);
+      expect(harness.streamBodies).toEqual([]);
+    });
+  });
+
   describe("with messages", () => {
     const textHistory: ChatHistoryEntry[] = [
       {
@@ -279,7 +364,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       await renderThread({
         historyEntries: [
           {
-            user_message: VOICE_SENTINEL,
+            user_message: VOICE_MESSAGE_SENTINEL,
             assistant_response: "Here is what I heard.",
             created_at: "2026-09-01T12:00:00Z",
           },
@@ -287,7 +372,9 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
         locale,
       });
 
-      expect(screen.queryByText(VOICE_SENTINEL)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(VOICE_MESSAGE_SENTINEL)
+      ).not.toBeInTheDocument();
       const label = screen.getByText(dict["message.voiceMessage"]);
       // The label is decorated with the mic icon (lucide renders an <svg>).
       expect(label.querySelector("svg")).not.toBeNull();
@@ -297,7 +384,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       const harness = await renderThread({
         historyEntries: [
           {
-            user_message: VOICE_SENTINEL,
+            user_message: VOICE_MESSAGE_SENTINEL,
             assistant_response: "Spoken reply transcript.",
             created_at: "2026-09-01T12:00:00Z",
             voice_audio_url: "https://audio.example/reply.mp3",

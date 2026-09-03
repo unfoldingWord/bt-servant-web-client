@@ -55,6 +55,7 @@ export const ptBR = {
 
   // User menu
   "userMenu.trigger": "Menu do usuário",
+  "userMenu.language": "Idioma",
   "userMenu.signOut": "Sair",
   "userMenu.signOutDescription": "Encerrar sua sessão atual",
 

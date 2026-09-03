@@ -1,6 +1,6 @@
 import { expect, vi, type Mock } from "vitest";
 import { waitFor } from "@testing-library/react";
-import type { ChatHistoryEntry } from "@/types/engine";
+import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
 import { createSseStream, type SseStream } from "./sse";
 
 // A fetch router standing in for the BFF (`/api/*`). Installed as the global
@@ -19,6 +19,11 @@ export interface FakeBffOptions {
    * is pushed onto `streams` so the test can emit events itself.
    */
   onStream?: RouteHandler;
+  /**
+   * What `GET /api/preferences` returns. Default: `{}` (a user with nothing
+   * stored yet). A `PUT` merges into it, so a later `GET` sees the write.
+   */
+  storedPreferences?: UserPreferences;
   /** Further routes keyed by pathname (the query string is ignored). */
   extraRoutes?: Record<string, RouteHandler>;
 }
@@ -29,6 +34,8 @@ export interface FakeBff {
   streams: SseStream[];
   /** Parsed JSON bodies of every `POST /api/chat/stream`, oldest first. */
   streamBodies: Array<Record<string, unknown>>;
+  /** Parsed JSON bodies of every `PUT /api/preferences`, oldest first. */
+  preferencePuts: Array<Record<string, unknown>>;
   /**
    * Resolves once the client has consumed the response body for `pathname`
    * (`json()`, `text()` or `blob()`). Any state the client sets in the same
@@ -65,6 +72,8 @@ function trackConsumption(response: Response, onConsumed: () => void) {
 export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
   const streams: SseStream[] = [];
   const streamBodies: Array<Record<string, unknown>> = [];
+  const preferencePuts: Array<Record<string, unknown>> = [];
+  let stored: UserPreferences = { ...opts.storedPreferences };
   const consumed = new Set<string>();
 
   const routes: Record<string, RouteHandler> = {
@@ -76,7 +85,16 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
       streams.push(stream);
       return stream.response;
     },
-    "/api/preferences": () => json({}),
+    "/api/preferences": (_url, init) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        preferencePuts.push(body);
+        stored = { ...stored, ...body };
+      }
+      return json(stored);
+    },
+    // next-auth's getCsrfToken() (user menu) fetches this on mount.
+    "/api/auth/csrf": () => json({ csrfToken: "test-csrf-token" }),
     ...opts.extraRoutes,
   };
 
@@ -109,6 +127,7 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     fetchMock,
     streams,
     streamBodies,
+    preferencePuts,
     bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
     historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
   };

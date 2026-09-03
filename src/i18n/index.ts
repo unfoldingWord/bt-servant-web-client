@@ -8,7 +8,7 @@ export {
   SUPPORTED_LOCALES,
   type Locale,
 } from "./locales";
-export { getInitialLocale, normalizeLocale, t } from "./t";
+export { getInitialLocale, normalizeLocale, t, toResponseLanguage } from "./t";
 export {
   LocaleProvider,
   useLocale,

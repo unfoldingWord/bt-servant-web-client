@@ -9,6 +9,7 @@ import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import type { ErrorKey } from "@/hooks/use-chat-runtime";
 import { useT, type MessageKey } from "@/i18n";
 import { APP_VERSION } from "@/lib/version";
+import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
 import { Button } from "@/components/ui/button";
 import {
   ActionBarPrimitive,
@@ -399,11 +400,13 @@ const ChatMessage: FC = () => {
 
 const UserMessage: FC = () => {
   const t = useT();
-  // "[Voice message]" is a persisted data sentinel written by
-  // use-chat-runtime.ts, not copy — it is never translated.
+  // The sentinel is persisted data written by use-chat-runtime.ts, not copy
+  // — it is never translated.
   const isVoiceMessage = useAssistantState(({ message }) => {
     const firstPart = message.content[0];
-    return firstPart?.type === "text" && firstPart.text === "[Voice message]";
+    return (
+      firstPart?.type === "text" && firstPart.text === VOICE_MESSAGE_SENTINEL
+    );
   });
 
   return (

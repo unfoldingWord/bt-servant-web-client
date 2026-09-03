@@ -12,8 +12,11 @@
  * Never add these here — they are data, not copy:
  *   - the `"[Voice message]"` sentinel (persisted in history; written by
  *     `use-chat-runtime.ts`, compared by equality in `thread.tsx`)
- *   - the SSE status keyword heuristic (`includes("audio" | "tts" | "speech")`)
- *     in `use-chat-runtime.ts`
+ *   - the SSE status `key` prefix (`status_tts_`) and its English keyword
+ *     fallback (`includes("audio" | "tts" | "speech")`) in
+ *     `use-chat-runtime.ts`
+ *   - locale display names (`English`, `Português (Brasil)`): they live in
+ *     the `LOCALES` registry and are the same in every interface language
  */
 export const en = {
   // Chat thread
@@ -67,6 +70,7 @@ export const en = {
 
   // User menu
   "userMenu.trigger": "User menu",
+  "userMenu.language": "Language",
   "userMenu.signOut": "Sign out",
   "userMenu.signOutDescription": "End your current session",
 
