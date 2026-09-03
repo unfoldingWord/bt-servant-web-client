@@ -15,6 +15,12 @@ import type {
 
 const FALLBACK_ERROR_MESSAGE =
   "Sorry, I encountered an error. Please try again.";
+const TIMEOUT_ERROR_MESSAGE =
+  "Sorry, that took too long and the response was cut off. Please try again.";
+
+type TimeoutReason = "hard_max_timeout" | "inactivity_timeout";
+/** Why a turn failed; the `reason` property on `chat_response_failed`. */
+type ChatFailureReason = TimeoutReason | "error";
 
 interface ChatMessage {
   id: string;
@@ -243,26 +249,30 @@ export function useChatRuntime() {
     setStatusMessage(null);
   }, []);
 
-  const handleError = useCallback((errorMessage: string) => {
-    console.error("[handleError]", errorMessage);
-    track("chat_response_failed", {
-      duration_ms: sentAtRef.current
-        ? Date.now() - sentAtRef.current
-        : undefined,
-    });
-    sentAtRef.current = null;
-    pendingCompleteRef.current = null;
-    setIsCompleting(false);
-    setIsAudioRequest(false);
-    isAudioRequestRef.current = false;
-    setMessages((prev) => [
-      ...prev,
-      createMessage(`error-${Date.now()}`, "assistant", errorMessage),
-    ]);
-    setIsLoading(false);
-    setStatusMessage(null);
-    setStreamingText("");
-  }, []);
+  const handleError = useCallback(
+    (errorMessage: string, reason: ChatFailureReason = "error") => {
+      console.error("[handleError]", reason, errorMessage);
+      track("chat_response_failed", {
+        reason,
+        duration_ms: sentAtRef.current
+          ? Date.now() - sentAtRef.current
+          : undefined,
+      });
+      sentAtRef.current = null;
+      pendingCompleteRef.current = null;
+      setIsCompleting(false);
+      setIsAudioRequest(false);
+      isAudioRequestRef.current = false;
+      setMessages((prev) => [
+        ...prev,
+        createMessage(`error-${Date.now()}`, "assistant", errorMessage),
+      ]);
+      setIsLoading(false);
+      setStatusMessage(null);
+      setStreamingText("");
+    },
+    []
+  );
 
   const sendMessage = useCallback(
     async (text: string, audioBase64?: string, audioFormat?: string) => {
@@ -304,16 +314,26 @@ export function useChatRuntime() {
       let hardMaxTimer: ReturnType<typeof setTimeout> | null = null;
       let inactivityTimer: ReturnType<typeof setInterval> | null = null;
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      // Why the stream was aborted. Only our own timers set this; an abort
+      // from unmount / a new request (user cancellation) leaves it null.
+      // Tracked out-of-band rather than via `abort(reason)` because fetch
+      // rejects with the reason itself, which would no longer be an AbortError.
+      let timeoutReason: TimeoutReason | null = null;
+      let handledTerminal = false;
 
       try {
         // Hard max timeout — abort the stream after 5 min no matter what
-        hardMaxTimer = setTimeout(() => abortController.abort(), HARD_MAX_MS);
+        hardMaxTimer = setTimeout(() => {
+          timeoutReason = "hard_max_timeout";
+          abortController.abort();
+        }, HARD_MAX_MS);
 
         // Inactivity tracking — abort if no SSE events for too long
         let lastEventTime = Date.now();
         let inactivityLimit = INACTIVITY_DEFAULT_MS;
         inactivityTimer = setInterval(() => {
           if (Date.now() - lastEventTime >= inactivityLimit) {
+            timeoutReason = "inactivity_timeout";
             abortController.abort();
           }
         }, 5_000);
@@ -348,7 +368,6 @@ export function useChatRuntime() {
         reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let handledTerminal = false;
 
         setStatusMessage("Connecting...");
 
@@ -438,6 +457,14 @@ export function useChatRuntime() {
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
+          // Our own timers aborted: that is a failed response, not a
+          // cancellation, so it must show up in `chat_response_failed`.
+          if (timeoutReason && !handledTerminal) {
+            handleError(TIMEOUT_ERROR_MESSAGE, timeoutReason);
+            return;
+          }
+          // Unmount / superseded request: reset silently.
+          sentAtRef.current = null;
           pendingCompleteRef.current = null;
           setIsCompleting(false);
           setIsLoading(false);
