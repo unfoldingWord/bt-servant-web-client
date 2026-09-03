@@ -15,7 +15,14 @@ import {
 import { installFakeBff } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import { sseResponse } from "@/test/sse";
-import { advance, closeAndFlush, flush, pushAndFlush } from "@/test/timers";
+import {
+  advance,
+  closeAndFlush,
+  flush,
+  pushAndFlush,
+  teardownMounted,
+  trackMount,
+} from "@/test/timers";
 import { Thread } from "./thread";
 
 // The thread is rendered through the real AssistantProvider (real
@@ -29,9 +36,10 @@ const VOICE_SENTINEL = "[Voice message]";
 const ENGINE_REPLY = "Reply from the engine.";
 const AUDIO_ROUTE = "/api/audio";
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+// Unmount (and close any stream still open) inside act, under the clock the
+// test left installed, before the setup file restores the console spies.
+// See src/test/timers.ts.
+afterEach(teardownMounted);
 
 async function renderThread({
   historyEntries = [],
@@ -57,11 +65,12 @@ async function renderThread({
         }),
     },
   });
-  render(
+  const { unmount } = render(
     <AssistantProvider>
       <Thread />
     </AssistantProvider>
   );
+  trackMount({ unmount, streams: harness.streams });
   // The first paint is always the empty state (messages start as []). Wait
   // for history to be applied so the branch under test is the one the user
   // would actually see; for a non-empty thread that is the greeting leaving.
@@ -81,14 +90,26 @@ describe("Thread — empty state", () => {
     expect(screen.getByText(GREETING)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
 
-    const chips = CHIPS.map((c) =>
-      screen.getByRole("button", { name: c.label })
-    );
-    expect(chips).toHaveLength(3);
+    // Every fixture chip is on screen, and nothing else with the button role
+    // but the composer's send button: jsdom has no MediaRecorder, so the
+    // voice button is not rendered. Counting all buttons (not the chips we
+    // looked up by name) is what makes a fourth product chip fail.
+    for (const chip of CHIPS) {
+      expect(
+        screen.getByRole("button", { name: chip.label })
+      ).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("button")).toHaveLength(CHIPS.length + 1);
   });
 
-  it.each(CHIPS.filter((c) => c.prompt !== c.label))(
-    "clicking $label sends its prompt, not its label",
+  // Premise for the it.each below: at least one chip's prompt differs from
+  // its label, otherwise "sends its prompt, not its label" proves nothing.
+  it("fixture: at least one chip has a prompt that differs from its label", () => {
+    expect(CHIPS.some((c) => c.prompt !== c.label)).toBe(true);
+  });
+
+  it.each(CHIPS)(
+    "clicking $label sends its prompt ($prompt), not its label",
     async (chip) => {
       const { streamBodies } = await renderThread();
       const user = userEvent.setup();
@@ -97,7 +118,6 @@ describe("Thread — empty state", () => {
 
       await waitFor(() => expect(streamBodies).toHaveLength(1));
       expect(streamBodies[0].message).toBe(chip.prompt);
-      expect(streamBodies[0].message).not.toBe(chip.label);
       expect(streamBodies[0].message_type).toBe("text");
 
       // The prompt (not the label) is what appears as the user's bubble, and

@@ -34,8 +34,17 @@ if (typeof URL.createObjectURL !== "function") {
 
 // jsdom has no media pipeline: HTMLMediaElement's play()/pause()/load() only
 // report "not implemented" through jsdom's virtual console, which bypasses
-// the console spies below. useAudioPlayer calls pause() when it unmounts.
-HTMLMediaElement.prototype.play = () => Promise.resolve();
+// the console spies below. They cannot be guarded with a `typeof` check like
+// the polyfills above — jsdom does define them, as functions that hit the
+// virtual console — so they are replaced unconditionally. pause()/load() are
+// no-ops (useAudioPlayer calls pause() when it unmounts); play() rejects by
+// default, as a browser with no decoder would, so useAudioPlayer's `.catch`
+// is reachable. Opt in to a resolving play() with `allowMediaPlayback()`
+// from src/test/media.ts.
+HTMLMediaElement.prototype.play = () =>
+  Promise.reject(
+    new DOMException("The operation is not supported.", "NotSupportedError")
+  );
 HTMLMediaElement.prototype.pause = () => {};
 HTMLMediaElement.prototype.load = () => {};
 

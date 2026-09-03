@@ -4,7 +4,13 @@ import { consoleSpy } from "@/test/console";
 import { CONNECTING, CONNECTION_LOST, FALLBACK_ERROR } from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
-import { advance, closeAndFlush, pushAndFlush } from "@/test/timers";
+import {
+  advance,
+  closeAndFlush,
+  pushAndFlush,
+  teardownMounted,
+  trackMount,
+} from "@/test/timers";
 import { useChatRuntime } from "./use-chat-runtime";
 
 // The literal the hook stores for a voice turn with no transcript. Kept local
@@ -21,23 +27,11 @@ const assistantMessages = (result: Result) =>
 const textOf = (message: Runtime["messages"][number]) =>
   message.content[0]?.text ?? "";
 
-// Set by mountRuntime. Unmounting inside act, under whatever clock the test
-// left installed, runs the hook's abort → catch → finally path so an open
-// stream and its 5s inactivity interval are torn down deterministically,
-// before the fetch stub goes away.
-let unmountRuntime: (() => void) | null = null;
-
-afterEach(async () => {
-  const unmount = unmountRuntime;
-  unmountRuntime = null;
-  if (unmount) {
-    await act(async () => {
-      unmount();
-      if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
-    });
-  }
-  vi.useRealTimers();
-});
+// Unmounting inside act, under whatever clock the test left installed, runs
+// the hook's abort → catch → finally path so an open stream and its 5s
+// inactivity interval are torn down deterministically, before the console
+// spies are restored and the fetch stub goes away. See src/test/timers.ts.
+afterEach(teardownMounted);
 
 /**
  * Renders the hook and lets the mount-time history load settle on real
@@ -47,7 +41,7 @@ afterEach(async () => {
 async function mountRuntime(opts?: FakeBffOptions) {
   const harness = installFakeBff(opts);
   const { result, unmount } = renderHook(() => useChatRuntime());
-  unmountRuntime = unmount;
+  trackMount({ unmount, streams: harness.streams });
   await harness.historyLoaded();
   return { harness, result };
 }
@@ -272,10 +266,17 @@ describe("useChatRuntime — timeouts", () => {
     });
     expect(result.current.statusMessage).toBe("Generating audio response");
 
-    // Well past the default limit, with no further events: the audio window
-    // keeps it alive. (The audio window and the hard maximum are both 300s,
-    // so the eventual abort is covered by the hard-maximum test below.)
+    // Past the default limit, with no further events: the audio window keeps
+    // it alive.
     await advance(125_000);
+    expect(stream.signal?.aborted).toBe(false);
+    expect(result.current.isLoading).toBe(true);
+
+    // ...and still alive at t ≈ 290s, the last 5s poll before the 300s audio
+    // window and hard maximum coincide. Pins the window's length: a 180s
+    // window (or anything under 290s) would have aborted by now. The abort
+    // itself is the hard-maximum test's job.
+    await advance(165_000);
     expect(stream.signal?.aborted).toBe(false);
     expect(result.current.isLoading).toBe(true);
   });

@@ -23,6 +23,25 @@ export function installConsolePolicy() {
   }
 }
 
+/**
+ * The text of one console argument: strings as-is, Error-like values (Error,
+ * DOMException, anything with a string `message`) by their message. React
+ * sometimes reports through an Error object rather than a format string, and
+ * a message-only match would otherwise slip past the policy.
+ */
+function argText(arg: unknown): string | null {
+  if (typeof arg === "string") return arg;
+  if (
+    typeof arg === "object" &&
+    arg !== null &&
+    "message" in arg &&
+    typeof arg.message === "string"
+  ) {
+    return arg.message;
+  }
+  return null;
+}
+
 /** Restores the spies and fails the test if React warned. */
 export function assertNoReactWarnings() {
   const warnings = [
@@ -30,7 +49,8 @@ export function assertNoReactWarnings() {
     ...consoleSpy.warn.mock.calls,
   ]
     .flat()
-    .filter((a): a is string => typeof a === "string" && REACT_WARNING.test(a));
+    .map(argText)
+    .filter((a): a is string => a !== null && REACT_WARNING.test(a));
   for (const spy of Object.values(consoleSpy)) spy.mockRestore();
   expect(warnings).toEqual([]);
 }

@@ -96,16 +96,20 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  const bodyConsumed = (pathname: string) =>
-    waitFor(() => expect(consumed.has(pathname)).toBe(true), {
+  // waitFor polls on the real clock; under vi.useFakeTimers() it would hang
+  // until its own timeout, so fail fast with the caller's name instead.
+  const waitConsumed = async (name: string, pathname: string) => {
+    if (vi.isFakeTimers()) throw new Error(`${name} requires real timers`);
+    await waitFor(() => expect(consumed.has(pathname)).toBe(true), {
       interval: 5,
     });
+  };
 
   return {
     fetchMock,
     streams,
     streamBodies,
-    bodyConsumed,
-    historyLoaded: () => bodyConsumed("/api/chat/history"),
+    bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
+    historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
   };
 }

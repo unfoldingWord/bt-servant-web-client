@@ -34,8 +34,18 @@ describe("GlobalError", () => {
   // so the i18n PR flips it deliberately (to the fallback locale) rather
   // than by accident.
   it("renders an <html> root that currently has no lang attribute", () => {
+    // A stale value on the document root before render. React 19 treats the
+    // route's <html> as a host singleton: acquiring document.documentElement
+    // strips attributes it does not own and applies the element's own props.
+    // So "no lang" afterwards means the route rendered an <html> with none —
+    // a component that dropped the <html> wrapper would leave "xx" in place,
+    // and jsdom's default root has no lang to begin with.
+    document.documentElement.setAttribute("lang", "xx");
     renderGlobalError();
 
+    expect(
+      screen.getByRole("heading", { name: GLOBAL_ERROR_HEADING })
+    ).toBeInTheDocument();
     expect(document.documentElement).not.toHaveAttribute("lang");
   });
 });
