@@ -615,6 +615,54 @@ describe("LocalePreferenceProvider — choose()", () => {
     expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
+  // Regression: while a pick's PUT is in flight the picker must show the
+  // pending value, not the applied one. Bound to the applied locale, a
+  // reselection of the user's original language is a no-op against the
+  // already-checked item and the pick they meant to cancel lands anyway.
+  it("exposes the pending pick, and a reselection of the applied locale reverses it", async () => {
+    const { preferencePutResponse, answerFirst } = deferredFirstPut();
+    const { harness, result } = mount({
+      navigator: "en-US",
+      storedPreferences: { response_language: "en" },
+      preferencePutResponse,
+    });
+    await preferencesRead(harness);
+    expect(result.current.pendingLocale).toBeNull();
+
+    let pick!: Promise<void>;
+    act(() => {
+      pick = result.current.choose("pt-BR");
+    });
+    await act(async () => {});
+    // In flight: the chrome is still `en`, the picker already shows `pt-BR`.
+    expect(result.current.locale).toBe("en");
+    expect(result.current.pendingLocale).toBe("pt-BR");
+
+    // The reversal is a real change against what the picker shows.
+    let reversal!: Promise<void>;
+    act(() => {
+      reversal = result.current.choose("en");
+    });
+    await act(async () => {});
+    expect(result.current.pendingLocale).toBe("en");
+
+    await answerFirst();
+    await pick;
+    await reversal;
+    await act(async () => {});
+
+    // The reversal is the last PUT the worker sees, and nothing stale applied.
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage("pt-BR") },
+      { response_language: toResponseLanguage("en") },
+    ]);
+    expect(result.current.locale).toBe("en");
+    expect(result.current.pendingLocale).toBeNull();
+    expect(result.current.responseLanguageHint).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(consoleSpy.error).not.toHaveBeenCalled();
+  });
+
   it("resolves, logs one console.error and keeps the current locale when the PUT fails", async () => {
     const { harness, result } = mount({
       navigator: "en-US",
@@ -634,8 +682,9 @@ describe("LocalePreferenceProvider — choose()", () => {
     expect(result.current.locale).toBe("en");
     expect(document.documentElement.lang).toBe("en");
     // The hint snaps back with the chrome: the next send must not be hinted
-    // with a language the worker never stored.
+    // with a language the worker never stored. So does the picker.
     expect(result.current.responseLanguageHint).toBe("en");
+    expect(result.current.pendingLocale).toBeNull();
   });
 });
 

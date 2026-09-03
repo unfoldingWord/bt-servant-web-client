@@ -29,7 +29,12 @@ const ITEM_CLASS =
 
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
-  const { locale, choose } = useLocalePreference();
+  const { locale, pendingLocale, choose } = useLocalePreference();
+  // What the radio shows: the pick still on its way, else what is applied.
+  // Binding to `locale` alone would make reselecting the original language
+  // during an in-flight pick a no-op against the already-checked value, so
+  // the pick the user meant to cancel would land anyway.
+  const selectedLocale = pendingLocale ?? locale;
   // Never flip the locale under an animating reply: the picker is locked
   // while a reply is in flight (the same formula as the preference owner's
   // `hold`) and says so.
@@ -43,13 +48,15 @@ export function UserMenu({ userInitial }: UserMenuProps) {
 
   // The provider persists first, then switches the chrome, so the interface
   // and the reply language never disagree; on failure it logs and the radio
-  // (controlled by `locale`) snaps back. While locked, a selection is
-  // ignored here rather than through Radix's `disabled`, which would also
-  // drop the items out of keyboard navigation.
+  // snaps back. Reselecting the shown value is the only no-op: picking the
+  // applied locale while another pick is in flight reverses it through the
+  // provider's chain, which coalesces and makes the last pick win storage.
+  // While locked, a selection is ignored here rather than through Radix's
+  // `disabled`, which would also drop the items out of keyboard navigation.
   const selectLocale = (value: string) => {
     if (languageLocked) return;
     const next = SUPPORTED_LOCALES.find((l) => l === value);
-    if (!next || next === locale) return;
+    if (!next || next === selectedLocale) return;
     void choose(next);
   };
 
@@ -79,7 +86,10 @@ export function UserMenu({ userInitial }: UserMenuProps) {
             {t("userMenu.languageLockedWhileReplying")}
           </p>
         )}
-        <DropdownMenuRadioGroup value={locale} onValueChange={selectLocale}>
+        <DropdownMenuRadioGroup
+          value={selectedLocale}
+          onValueChange={selectLocale}
+        >
           {SUPPORTED_LOCALES.map((l) => (
             <DropdownMenuRadioItem
               key={l}

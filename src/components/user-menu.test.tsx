@@ -52,6 +52,26 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>, dict: Dict) {
 
 type Dict = (typeof LOCALES)[Locale]["dictionary"];
 
+/** The first PUT answers only when the test says so; later PUTs at once. */
+function deferredFirstPut() {
+  let answer!: () => void;
+  let calls = 0;
+  const preferencePutResponse = () =>
+    ++calls === 1
+      ? new Promise<Response>(
+          (r) => (answer = () => r(new Response("{}", { status: 200 })))
+        )
+      : new Response("{}", { status: 200 });
+  return {
+    preferencePutResponse,
+    answerFirst: async () => {
+      answer();
+      await act(async () => {});
+      await act(async () => {});
+    },
+  };
+}
+
 describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
   const dict = LOCALES[locale].dictionary;
   const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
@@ -130,6 +150,53 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     await act(async () => {});
 
     expect(harness.preferencePuts).toEqual([]);
+  });
+
+  // Regression: the radio is bound to the pending pick, not the applied
+  // locale. Bound to the applied locale, reselecting the original language
+  // while the first PUT is still in flight is a no-op against the checked
+  // item, and the language the user just cancelled lands anyway.
+  it(`re-selecting ${LOCALES[locale].displayName} while the PUT for ${LOCALES[other].displayName} is in flight reverses the pick`, async () => {
+    const { preferencePutResponse, answerFirst } = deferredFirstPut();
+    const harness = await renderMenu(locale, { preferencePutResponse });
+    const user = userEvent.setup();
+
+    await openMenu(user, dict);
+    await user.click(
+      screen.getByRole("menuitemradio", { name: LOCALES[other].displayName })
+    );
+    await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+
+    // In flight: the chrome has not moved, but the picker shows the pick.
+    expect(document.documentElement.lang).toBe(locale);
+    await openMenu(user, dict);
+    expect(
+      screen.getByRole("menuitemradio", { checked: true })
+    ).toHaveTextContent(LOCALES[other].displayName);
+
+    // The reversal is a real change against what the picker shows.
+    await user.click(
+      screen.getByRole("menuitemradio", { name: LOCALES[locale].displayName })
+    );
+    await answerFirst();
+
+    await waitFor(
+      () =>
+        expect(harness.preferencePuts).toEqual([
+          { response_language: toResponseLanguage(other) },
+          { response_language: toResponseLanguage(locale) },
+        ]),
+      WAIT
+    );
+    expect(document.documentElement.lang).toBe(locale);
+    expect(
+      screen.getByRole("button", { name: dict["userMenu.trigger"] })
+    ).toBeInTheDocument();
+    await openMenu(user, dict);
+    expect(
+      screen.getByRole("menuitemradio", { checked: true })
+    ).toHaveTextContent(LOCALES[locale].displayName);
+    expect(consoleSpy.error).not.toHaveBeenCalled();
   });
 
   it("keeps the current locale and logs one console.error when the PUT fails", async () => {

@@ -47,14 +47,25 @@ interface LocalePreferenceContextValue {
    */
   responseLanguageHint: string | undefined;
   /**
+   * The latest pick that has not reached the chrome yet — its `PUT` is in
+   * flight, or `hold` is deferring the apply — and `null` otherwise. The
+   * picker binds its radio to `pendingLocale ?? locale` so the control
+   * shows what the user asked for, not what is applied: without it,
+   * reselecting the original language during an in-flight pick is a
+   * no-op against the already-checked value and the pick the user meant
+   * to cancel lands anyway. A failed pick clears it with the hint.
+   */
+  pendingLocale: Locale | null;
+  /**
    * Persists `locale` as the user's `response_language`, then applies it to
    * the chrome (through the same hold as the load: never under an animating
    * reply). Every write shares one chain, the first-visit seed included:
    * no PUT starts before the previous one has settled, and a seed or pick
    * that is no longer the latest intent by the time its turn comes is
    * skipped, so the last PUT sent is always the latest pick and the worker
-   * cannot end up storing an older one. A load still in flight is
-   * superseded. Resolves when this pick's write has settled or been
+   * cannot end up storing an older one — which is what lets a reselection
+   * of the applied locale reverse a pick whose `PUT` is still in flight. A
+   * load still in flight is superseded. Resolves when this pick's write has settled or been
    * skipped; never rejects (a failed write is logged with context, and the
    * current locale and hint both stay).
    */
@@ -145,6 +156,9 @@ export function LocalePreferenceProvider({
   // What the load or a pick delivered and has not applied yet (held, or one
   // render away from applying).
   const [loaded, setLoaded] = useState<Locale | null>(null);
+  // The latest pick that has not reached the chrome yet, so the picker can
+  // show it and a reselection of the applied locale can reverse it.
+  const [pendingLocale, setPendingLocale] = useState<Locale | null>(null);
   // The mount-time load, so `choose` can cancel it.
   const loadRef = useRef<AbortController | null>(null);
   // Picks are numbered so only the latest one writes and applies. Every
@@ -218,10 +232,13 @@ export function LocalePreferenceProvider({
     return () => controller.abort();
   }, [enqueueWrite, publishHint]);
 
-  // Apply the loaded or chosen value once nothing is animating.
+  // Apply the loaded or chosen value once nothing is animating. Whatever
+  // was pending has now reached the chrome, so the picker follows `locale`
+  // again.
   useEffect(() => {
     if (loaded === null || hold) return;
     setLoaded(null);
+    setPendingLocale(null);
     setLocale(loaded);
   }, [loaded, hold, setLocale]);
 
@@ -236,6 +253,7 @@ export function LocalePreferenceProvider({
       setReady(true);
       const previousHint = hintRef.current;
       publishHint(toResponseLanguage(next));
+      setPendingLocale(next);
 
       const isLatest = () => generation === chooseGenerationRef.current;
       return enqueueWrite(async () => {
@@ -248,7 +266,9 @@ export function LocalePreferenceProvider({
           setLoaded(next);
         } catch (error) {
           if (!isLatest()) return;
-          // The chrome snaps back (the radio is controlled); so does the hint.
+          // The chrome snaps back (the radio follows `pendingLocale ??
+          // locale`); so does the hint.
+          setPendingLocale(null);
           publishHint(previousHint);
           console.error(
             "[LocalePreferenceProvider] could not save the language preference; keeping the current locale",
@@ -261,8 +281,8 @@ export function LocalePreferenceProvider({
   );
 
   const value = useMemo<LocalePreferenceContextValue>(
-    () => ({ locale, ready, responseLanguageHint, choose }),
-    [locale, ready, responseLanguageHint, choose]
+    () => ({ locale, pendingLocale, ready, responseLanguageHint, choose }),
+    [locale, pendingLocale, ready, responseLanguageHint, choose]
   );
 
   return (
