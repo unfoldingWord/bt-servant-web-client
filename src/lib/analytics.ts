@@ -1,6 +1,6 @@
 "use client";
 
-import posthog from "posthog-js";
+import posthog, { type CaptureResult } from "posthog-js";
 
 /**
  * Thin seam over PostHog for the web client. Everything else imports `track`
@@ -12,6 +12,11 @@ import posthog from "posthog-js";
  * never what was said. Unmasking text is the open conversation-content
  * decision and must not be flipped here without that call being made.
  *
+ * URLs: `/chat` accepts `?intent=` straight from the address bar, so any
+ * captured URL is user-controlled text. `scrubEvent` strips the query string
+ * and hash from every URL property PostHog attaches (pageviews, `$set_once`
+ * initial URLs, replay page metadata) before anything leaves the browser.
+ *
  * Identity, deliberately: we do NOT call `posthog.identify()` yet. The only
  * stable id the browser has is the raw email (`session.user.id`), and sending
  * that would break the pseudonymous posture the engine-side telemetry keeps.
@@ -21,12 +26,90 @@ import posthog from "posthog-js";
  * identified events.
  */
 
+type QueuedEvent = { event: string; properties?: Record<string, unknown> };
+
+/** Bound on events buffered before `initAnalytics` settles. */
+const MAX_PRE_INIT_QUEUE = 20;
+
 let initialized = false;
+/** True once `initAnalytics` has decided whether analytics is on or off. */
+let settled = false;
+/**
+ * Events tracked before init. React runs child effects before parent effects,
+ * so a `track()` in a page component fires before `AnalyticsProvider` has
+ * called `initAnalytics`; without this buffer those events are lost.
+ */
+let preInitQueue: QueuedEvent[] = [];
+
+const URL_PROPERTY_KEYS = [
+  "$current_url",
+  "$initial_current_url",
+  "$referrer",
+  "$initial_referrer",
+  "$session_entry_url",
+  "$client_session_initial_url",
+] as const;
+
+/** Drops the query string and hash. Non-URL strings come back untouched. */
+export function scrubUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function scrubUrlProps(props: Record<string, unknown> | undefined): void {
+  if (!props) return;
+  for (const key of URL_PROPERTY_KEYS) {
+    const value = props[key];
+    if (typeof value === "string") props[key] = scrubUrl(value);
+  }
+}
+
+/**
+ * `before_send` hook: sanitize every outgoing event in place. Exported so the
+ * scrubbing rules are unit-testable without booting the SDK.
+ */
+export function scrubEvent(event: CaptureResult | null): CaptureResult | null {
+  if (!event) return event;
+  scrubUrlProps(event.properties);
+  scrubUrlProps(event.$set);
+  scrubUrlProps(event.$set_once);
+  scrubUrlProps(
+    event.properties?.$set_once as Record<string, unknown> | undefined
+  );
+  scrubUrlProps(event.properties?.$set as Record<string, unknown> | undefined);
+
+  // Session replay: rrweb Meta events (type 4) carry the page href.
+  const snapshots = event.properties?.$snapshot_data;
+  if (Array.isArray(snapshots)) {
+    for (const snap of snapshots) {
+      const data = (snap as { type?: number; data?: { href?: unknown } })?.data;
+      if (
+        (snap as { type?: number })?.type === 4 &&
+        data &&
+        typeof data.href === "string"
+      ) {
+        data.href = scrubUrl(data.href);
+      }
+    }
+  }
+  return event;
+}
 
 export function initAnalytics(): void {
-  if (initialized || typeof window === "undefined") return;
+  if (settled || typeof window === "undefined") return;
+  settled = true;
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-  if (!key) return; // unset => analytics off; deploys stay safe before secrets land
+  if (!key) {
+    // unset => analytics off; deploys stay safe before secrets land
+    preInitQueue = [];
+    return;
+  }
   const replay = process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY === "true";
   posthog.init(key, {
     api_host:
@@ -49,15 +132,31 @@ export function initAnalytics(): void {
     capture_pageview: true,
     capture_pageleave: true,
     person_profiles: "identified_only",
+    // Strip query strings/hashes from every captured URL (see header comment).
+    before_send: scrubEvent,
   });
   initialized = true;
+
+  const queued = preInitQueue;
+  preInitQueue = [];
+  for (const { event, properties } of queued) {
+    posthog.capture(event, properties);
+  }
 }
 
-/** Fire-and-forget. Safe to call before init or with analytics disabled. */
+/**
+ * Fire-and-forget. Safe to call before init (the event is buffered and sent
+ * once `initAnalytics` runs) or with analytics disabled (dropped).
+ */
 export function track(
   event: string,
   properties?: Record<string, unknown>
 ): void {
-  if (!initialized) return;
-  posthog.capture(event, properties);
+  if (initialized) {
+    posthog.capture(event, properties);
+    return;
+  }
+  if (settled) return; // analytics is off for this build
+  if (preInitQueue.length >= MAX_PRE_INIT_QUEUE) preInitQueue.shift();
+  preInitQueue.push({ event, properties });
 }

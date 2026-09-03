@@ -3,6 +3,7 @@ import { ClientThread } from "@/components/assistant-ui/client-thread";
 import { auth } from "@/auth";
 import { UserMenu } from "@/components/user-menu";
 import { TrackIntent } from "@/components/analytics/track-intent";
+import { parseIntent } from "@/lib/intent";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookBible } from "@fortawesome/pro-duotone-svg-icons";
 
@@ -12,7 +13,8 @@ export default async function ChatPage({
   searchParams: Promise<{ intent?: string }>;
 }) {
   const session = await auth();
-  const { intent } = await searchParams;
+  // Only a known marketing key is forwarded; arbitrary URL text is dropped.
+  const intent = parseIntent((await searchParams).intent);
 
   return (
     <AssistantProvider>
