@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BYTE_UNITS } from "@/test/copy";
-import { formatBytes } from "./utils";
+import { formatBytes, hasVisibleText } from "./utils";
 
 const [B, KB, MB, GB, TB] = BYTE_UNITS;
 
@@ -28,5 +28,21 @@ describe("formatBytes", () => {
     expect(formatBytes(-1)).toBe(`0 ${B}`);
     expect(formatBytes(Number.NaN)).toBe(`0 ${B}`);
     expect(formatBytes(Number.POSITIVE_INFINITY)).toBe(`0 ${B}`);
+  });
+});
+
+describe("hasVisibleText", () => {
+  it("treats whitespace-only streamed text as nothing visible", () => {
+    // The worker's inter-iteration separator, and the shapes around it.
+    expect(hasVisibleText("")).toBe(false);
+    expect(hasVisibleText("\n")).toBe(false);
+    expect(hasVisibleText("\n\n")).toBe(false);
+    expect(hasVisibleText(" \t\n ")).toBe(false);
+  });
+
+  it("is true as soon as one non-whitespace character has streamed", () => {
+    expect(hasVisibleText("Bem")).toBe(true);
+    expect(hasVisibleText("\nBem")).toBe(true);
+    expect(hasVisibleText(" .")).toBe(true);
   });
 });

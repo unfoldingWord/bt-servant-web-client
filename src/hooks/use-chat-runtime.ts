@@ -7,6 +7,7 @@ import {
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { track } from "@/lib/analytics";
 import type { MessageKey } from "@/i18n";
+import { hasVisibleText } from "@/lib/utils";
 import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
 import {
   isWorkerStatusKey,
@@ -553,8 +554,11 @@ export function useChatRuntime({
   // Combine messages with streaming message if present.
   // For audio requests, suppress the visible streaming text — the user
   // will only see the audio player (with optional transcript toggle).
+  // Whitespace-only streamed text is not a message: the worker's
+  // inter-iteration separator ("\n") would otherwise render an empty
+  // assistant bubble before the model's first word. See issue #60.
   const allMessages = useMemo(() => {
-    if (streamingText && !isAudioRequest) {
+    if (hasVisibleText(streamingText) && !isAudioRequest) {
       const streamingMessage = createMessage(
         "streaming",
         "assistant",

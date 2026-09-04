@@ -32,7 +32,7 @@ import { useState, useEffect, useRef, useCallback, type FC } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkDedupeVideoLinks } from "@/lib/remark-dedupe-video-links";
-import { cn } from "@/lib/utils";
+import { cn, hasVisibleText } from "@/lib/utils";
 import type { Attachment } from "@/types/engine";
 
 // Animation constants
@@ -165,9 +165,15 @@ const LoadingIndicator: FC = () => {
   const t = useT();
 
   // Show loading indicator when loading and either:
-  // - no streaming text yet (text requests), or
+  // - no *visible* streaming text yet (text requests), or
   // - audio request (streaming text is hidden, so keep showing status)
-  if (!isLoading || (streamingText && !isAudioRequest)) return null;
+  //
+  // Visible, not merely non-empty: the worker's inter-iteration separator is a
+  // lone "\n" that can arrive before any real text, and taking it for the start
+  // of the reply used to pull the indicator down for the rest of the tool
+  // phase — a blank slot with no spinner and no status. See issue #60.
+  if (!isLoading || (hasVisibleText(streamingText) && !isAudioRequest))
+    return null;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-2">
