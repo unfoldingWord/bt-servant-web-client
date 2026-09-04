@@ -17,3 +17,15 @@ export function formatBytes(bytes: number): string {
   const rounded = i === 0 ? value : Math.round(value * 10) / 10;
   return `${rounded} ${units[i]}`;
 }
+
+/**
+ * True when streamed text contains something a reader can actually see.
+ *
+ * The worker separates orchestration iterations with a `progress` frame whose
+ * text is a lone "\n", which can arrive before any real text on a tool-heavy
+ * turn. Treating that as "text has arrived" hides the loading indicator and
+ * renders an empty assistant bubble. See issue #60.
+ */
+export function hasVisibleText(text: string): boolean {
+  return text.trim() !== "";
+}

@@ -272,6 +272,46 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       expect(screen.queryByText("Looking up Amos")).not.toBeInTheDocument();
     });
 
+    // Issue #60: the worker separates orchestration iterations with a
+    // `progress` frame whose text is a lone "\n", which on a tool-heavy turn
+    // arrives before any real text. It must not be mistaken for the start of
+    // the reply: doing so pulled the indicator down and rendered an empty
+    // assistant bubble for the 10-30s remainder of the tool phase, swallowing
+    // every status that arrived in that window.
+    it("keeps the status up through a whitespace-only progress frame and hands over only when real text arrives", async () => {
+      const harness = await renderThread({ liveStream: true, locale });
+
+      vi.useFakeTimers();
+      fireEvent.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await flush();
+      const stream = harness.streams[0];
+
+      await pushAndFlush(stream, {
+        type: "status",
+        message: "Looking up Amos",
+      });
+      expect(screen.getByText("Looking up Amos")).toBeInTheDocument();
+
+      await pushAndFlush(stream, { type: "progress", text: "\n" });
+      expect(screen.getByText("Looking up Amos")).toBeInTheDocument();
+      // Every rendered turn draws its markdown into a `.prose` block; the
+      // user's is the only one, so no assistant bubble was opened for the
+      // whitespace.
+      expect(
+        [...document.querySelectorAll(".prose")].map((el) => el.textContent)
+      ).toEqual([CHIPS[0].prompt]);
+
+      // A status arriving after the separator is rendered, not swallowed.
+      await pushAndFlush(stream, { type: "status", message: "Reading Amos 1" });
+      expect(screen.getByText("Reading Amos 1")).toBeInTheDocument();
+
+      await pushAndFlush(stream, { type: "progress", text: "Bem" });
+      expect(screen.getByText("Bem")).toBeInTheDocument();
+      expect(screen.queryByText("Reading Amos 1")).not.toBeInTheDocument();
+
+      await closeAndFlush(stream);
+    });
+
     it("renders the canned error copy for an error event, never the raw worker text", async () => {
       const harness = await renderThread({ liveStream: true, locale });
 
