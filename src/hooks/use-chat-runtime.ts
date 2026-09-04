@@ -226,9 +226,14 @@ export function useChatRuntime({
     const historyAbort = new AbortController();
 
     loadHistory(historyAbort.signal).then((historyMessages) => {
-      if (!historyAbort.signal.aborted) {
-        setMessages(historyMessages);
-      }
+      if (historyAbort.signal.aborted) return;
+      // Merge, never replace. The composer and the welcome chips are live
+      // from first paint, so a message sent inside the history round-trip is
+      // already in `prev` by the time this lands; replacing the list would
+      // drop it (and, on an empty thread, take the loading indicator with
+      // it). History is strictly older, so it goes in front. See issue #61.
+      if (historyMessages.length === 0) return;
+      setMessages((prev) => [...historyMessages, ...prev]);
     });
 
     return () => {

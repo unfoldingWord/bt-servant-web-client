@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
 import { LOCALES, SUPPORTED_LOCALES, toResponseLanguage } from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
@@ -482,5 +482,71 @@ describe("useChatRuntime — timeouts", () => {
         .map(([name]) => name)
         .filter((n) => n !== "chat_message_sent")
     ).toEqual([]);
+  });
+});
+
+describe("useChatRuntime — history load races the first send", () => {
+  // The composer and the welcome chips are live from first paint, while the
+  // mount-time history GET is still out (0.6-1.7s on staging). A message sent
+  // in that window used to be wiped when history landed, because the effect
+  // replaced the list instead of merging into it. See issue #61.
+  it("prepends history to a message sent before it resolved, and keeps the turn running", async () => {
+    let resolveHistory!: (response: Response) => void;
+    const harness = installFakeBff({
+      historyResponse: () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    });
+    const { result, unmount } = renderHook(() => useChatRuntime());
+    trackMount({ unmount, streams: harness.streams });
+
+    // Send while the history GET is still open. Waiting on the connecting
+    // status proves the stream is up, not merely requested.
+    await act(async () => {
+      void result.current.sendMessage("Resuma Gênesis 1:1-5");
+    });
+    await waitFor(() =>
+      expect(result.current.status).toEqual({ key: "status.connecting" })
+    );
+    expect(result.current.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(result.current.isLoading).toBe(true);
+    expect(harness.streams).toHaveLength(1);
+
+    resolveHistory(
+      new Response(
+        JSON.stringify({
+          entries: [
+            {
+              user_message: "Quem escreveu Amós?",
+              assistant_response: "Amós, o pastor de Tecoa.",
+              created_at: "2026-09-03T12:00:00.000Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await harness.historyLoaded();
+
+    // History is strictly older, so it goes in front; the pending question is
+    // still there, still last, and the indicator (isLoading) never dropped.
+    expect(result.current.messages.map((m) => [m.role, textOf(m)])).toEqual([
+      ["user", "Quem escreveu Amós?"],
+      ["assistant", "Amós, o pastor de Tecoa."],
+      ["user", "Resuma Gênesis 1:1-5"],
+    ]);
+    expect(result.current.isLoading).toBe(true);
+
+    // The reply appends last: history → question → answer.
+    harness.streams[0].push(completeEvent(["No princípio, Deus criou..."]));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.messages.map((m) => [m.role, textOf(m)])).toEqual([
+      ["user", "Quem escreveu Amós?"],
+      ["assistant", "Amós, o pastor de Tecoa."],
+      ["user", "Resuma Gênesis 1:1-5"],
+      ["assistant", "No princípio, Deus criou..."],
+    ]);
   });
 });

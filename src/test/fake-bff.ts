@@ -18,6 +18,12 @@ export interface FakeBffOptions {
   /** Entries `GET /api/chat/history` returns. Default: none (empty thread). */
   historyEntries?: ChatHistoryEntry[];
   /**
+   * Answers `GET /api/chat/history`. Default: 200 with `historyEntries`.
+   * Return a promise the test resolves later to hold the load open and
+   * exercise what the client does while it is still out.
+   */
+  historyResponse?: () => Response | Promise<Response>;
+  /**
    * Answers `POST /api/chat/stream`. Default: a controllable SSE stream that
    * is pushed onto `streams` so the test can emit events itself.
    */
@@ -94,7 +100,10 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
   const consumed = new Map<string, number>();
 
   const routes: Record<string, RouteHandler> = {
-    "/api/chat/history": () => json({ entries: opts.historyEntries ?? [] }),
+    "/api/chat/history": () => {
+      if (opts.historyResponse) return opts.historyResponse();
+      return json({ entries: opts.historyEntries ?? [] });
+    },
     "/api/chat/stream": (url, init) => {
       streamBodies.push(JSON.parse(String(init?.body)));
       if (opts.onStream) return opts.onStream(url, init);
