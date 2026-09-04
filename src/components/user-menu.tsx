@@ -29,7 +29,8 @@ const ITEM_CLASS =
 
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
-  const { locale, pendingLocale, choose } = useLocalePreference();
+  const { locale, pendingLocale, responseLanguageHint, choose } =
+    useLocalePreference();
   // What the radio shows: the pick still on its way, else what is applied.
   // Binding to `locale` alone would make reselecting the original language
   // during an in-flight pick a no-op against the already-checked value, so
@@ -56,7 +57,16 @@ export function UserMenu({ userInitial }: UserMenuProps) {
   const selectLocale = (value: string) => {
     if (languageLocked) return;
     const next = SUPPORTED_LOCALES.find((l) => l === value);
-    if (!next || next === selectedLocale) return;
+    if (!next) return;
+    // Reselecting what is already shown is normally a no-op -- except when
+    // the worker's stored code is not one this client can represent (an
+    // unsupported code leaves the hint undefined and the chrome on the
+    // default locale). Then the shown option is the one value the user
+    // cannot otherwise reach, and picking it must be able to overwrite what
+    // the worker holds. The hint is also undefined while the mount-time GET
+    // is still out, where writing the shown locale is what the user asked
+    // for and supersedes the load through the provider's chain.
+    if (next === selectedLocale && responseLanguageHint !== undefined) return;
     void choose(next);
   };
 

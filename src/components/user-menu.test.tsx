@@ -5,6 +5,7 @@ import { AssistantProvider } from "@/components/providers/assistant-provider";
 import { LocaleProvider } from "@/i18n";
 import { consoleSpy } from "@/test/console";
 import {
+  DEFAULT_LOCALE,
   LOCALES,
   SUPPORTED_LOCALES,
   toResponseLanguage,
@@ -150,6 +151,42 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     await act(async () => {});
 
     expect(harness.preferencePuts).toEqual([]);
+  });
+
+  // Regression: an unsupported stored code (the worker accepts any ISO 639-1
+  // value) leaves the chrome on the default locale with no hint, so the shown
+  // option is the one value the picker must still be able to write. Guarding
+  // on the displayed locale alone strands the user: the worker keeps replying
+  // in the stored language while the interface says otherwise.
+  it("writes the displayed locale when the stored code is one this client cannot represent", async () => {
+    stubNavigatorLanguage(locale);
+    const harness = installFakeBff({
+      storedPreferences: { response_language: "es" },
+    });
+    render(
+      <LocaleProvider>
+        <AssistantProvider>
+          <UserMenu userInitial="S" />
+        </AssistantProvider>
+      </LocaleProvider>
+    );
+    await harness.bodyConsumed("/api/auth/csrf");
+    await harness.historyLoaded();
+    await harness.preferencesLoaded();
+    const user = userEvent.setup();
+
+    // The chrome fell back to the default locale, so that is what is checked.
+    await openMenu(user, LOCALES[DEFAULT_LOCALE].dictionary);
+    await user.click(
+      screen.getByRole("menuitemradio", {
+        name: LOCALES[DEFAULT_LOCALE].displayName,
+      })
+    );
+    await act(async () => {});
+
+    expect(harness.preferencePuts).toEqual([
+      { response_language: toResponseLanguage(DEFAULT_LOCALE) },
+    ]);
   });
 
   // Regression: the radio is bound to the pending pick, not the applied
