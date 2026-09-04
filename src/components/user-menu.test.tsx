@@ -234,6 +234,35 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     expect(harness.preferencePuts).toEqual([]);
   });
 
+  // Regression: a failed load leaves nothing acknowledged, which must not be
+  // read as "the stored code is unrepresentable" -- reselecting the shown
+  // locale would then persist it over a stored preference nobody has read.
+  it("writes nothing when the shown locale is reselected after the load failed", async () => {
+    stubNavigatorLanguage(locale);
+    const harness = installFakeBff({
+      preferenceGetResponse: () => new Response("nope", { status: 500 }),
+    });
+    render(
+      <LocaleProvider>
+        <AssistantProvider>
+          <UserMenu userInitial="S" />
+        </AssistantProvider>
+      </LocaleProvider>
+    );
+    await harness.bodyConsumed("/api/auth/csrf");
+    await harness.historyLoaded();
+    await waitFor(() => expect(consoleSpy.error).toHaveBeenCalledTimes(1));
+    const user = userEvent.setup();
+
+    await openMenu(user, dict);
+    await user.click(
+      screen.getByRole("menuitemradio", { name: LOCALES[locale].displayName })
+    );
+    await act(async () => {});
+
+    expect(harness.preferencePuts).toEqual([]);
+  });
+
   // Regression: the radio is bound to the pending pick, not the applied
   // locale. Bound to the applied locale, reselecting the original language
   // while the first PUT is still in flight is a no-op against the checked

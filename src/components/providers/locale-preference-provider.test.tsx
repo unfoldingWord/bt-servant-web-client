@@ -842,11 +842,15 @@ describe("LocalePreferenceProvider — responseLanguageHint", () => {
       WAIT
     );
     expect(result.current.responseLanguageHint).toBeUndefined();
+    // The picker's exception must not fire here: no hint yet, but nothing
+    // is known about the stored code either.
+    expect(result.current.storedCodeUnrepresentable).toBe(false);
 
     await answer({ response_language: "pt" });
 
     expect(result.current.responseLanguageHint).toBe("pt");
     expect(result.current.locale).toBe("pt-BR");
+    expect(result.current.storedCodeUnrepresentable).toBe(false);
   });
 
   it("is the browser-derived code as soon as an empty GET comes back, while the seed PUT is still pending", async () => {
@@ -873,6 +877,22 @@ describe("LocalePreferenceProvider — responseLanguageHint", () => {
 
     expect(result.current.locale).toBe("en");
     expect(result.current.responseLanguageHint).toBeUndefined();
+    // The one state where reselecting the shown locale must still write.
+    expect(result.current.storedCodeUnrepresentable).toBe(true);
+  });
+
+  it("stays representable when the GET fails, so a reselection cannot overwrite the unread stored value", async () => {
+    const { harness, result } = mount({
+      navigator: "en-US",
+      extraRoutes: {
+        [PREFERENCES_ROUTE]: () => new Response("nope", { status: 500 }),
+      },
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true), WAIT);
+
+    expect(result.current.storedCodeUnrepresentable).toBe(false);
+    expect(harness.preferencePuts).toEqual([]);
+    expect(consoleSpy.error).toHaveBeenCalledTimes(1);
   });
 
   it("is the chosen code from the moment of the pick, before its PUT lands", async () => {
