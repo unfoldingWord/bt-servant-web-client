@@ -39,7 +39,16 @@ export interface ChatResponse {
 }
 
 export interface UserPreferences {
-  response_language?: string;
+  /**
+   * The user's stored interface/reply language as an ISO 639-1 code (e.g.
+   * `pt`), or `null`/absent when they have never chosen one. The worker
+   * returns `null` in that state (bt-servant-worker#408) rather than merging
+   * its own default, so the client can tell "nothing stored" from a real
+   * choice. The client treats `null` and absent alike: keep the browser
+   * locale and seed it. The picker is the only writer and always PUTs a real
+   * code, never `null`.
+   */
+  response_language?: string | null;
 }
 
 export interface ChatHistoryEntry {

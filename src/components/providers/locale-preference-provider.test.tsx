@@ -188,7 +188,14 @@ describe("LocalePreferenceProvider — stored preference", () => {
 });
 
 describe("LocalePreferenceProvider — first visit seed", () => {
+  // `null` (the worker's "never chosen", bt-servant-worker#408), an absent
+  // field, and the empty string an older worker sent are all "nothing
+  // stored": keep the browser locale and seed it once. `null` is the
+  // regression #58 fixes — before it, the worker's merged default overrode
+  // the browser and a Portuguese browser rendered English.
   it.each<[FakeBffOptions["storedPreferences"], string, Locale]>([
+    [{ response_language: null }, "pt-BR", "pt-BR"],
+    [{ response_language: null }, "en-US", "en"],
     [{}, "pt-BR", "pt-BR"],
     [{}, "en-US", "en"],
     [{ response_language: "" }, "pt-BR", "pt-BR"],
@@ -205,6 +212,9 @@ describe("LocalePreferenceProvider — first visit seed", () => {
       ]);
       expect(result.current.locale).toBe(expected);
       expect(result.current.ready).toBe(true);
+      // The worker holds nothing, so nothing is unrepresentable: the picker
+      // shows the seeded browser locale and reselecting it is a no-op.
+      expect(result.current.storedCodeUnrepresentable).toBe(false);
       expect(consoleSpy.error).not.toHaveBeenCalled();
     }
   );
@@ -456,7 +466,7 @@ describe("LocalePreferenceProvider — choose()", () => {
   // seed). `choose` supersedes the load.
   it.each<[string, unknown]>([
     ["a stored value", { response_language: "en" }],
-    ["nothing stored (no seed PUT follows)", {}],
+    ["nothing stored (null; no seed PUT follows)", { response_language: null }],
   ])(
     "wins over a load still in flight whose late GET delivers %s",
     async (_label, lateBody) => {
