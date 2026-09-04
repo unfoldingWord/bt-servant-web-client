@@ -32,6 +32,12 @@ export interface FakeBffOptions {
    * `preferencePuts`. Default: 200 with the merged stored value.
    */
   preferencePutResponse?: () => Response | Promise<Response>;
+  /**
+   * Answers `GET /api/preferences`. Default: 200 with the stored value.
+   * Return a promise the test resolves later to hold the load open and
+   * exercise what the client does while it is still out.
+   */
+  preferenceGetResponse?: () => Response | Promise<Response>;
   /** Further routes keyed by pathname (the query string is ignored). */
   extraRoutes?: Record<string, RouteHandler>;
 }
@@ -102,7 +108,9 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
         preferencePuts.push(body);
         stored = { ...stored, ...body };
         if (opts.preferencePutResponse) return opts.preferencePutResponse();
+        return json(stored);
       }
+      if (opts.preferenceGetResponse) return opts.preferenceGetResponse();
       return json(stored);
     },
     // next-auth's getCsrfToken() (user menu) fetches this on mount.

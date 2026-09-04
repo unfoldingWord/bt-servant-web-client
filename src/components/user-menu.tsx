@@ -29,7 +29,7 @@ const ITEM_CLASS =
 
 export function UserMenu({ userInitial }: UserMenuProps) {
   const [csrfToken, setCsrfToken] = useState<string>("");
-  const { locale, pendingLocale, responseLanguageHint, choose } =
+  const { locale, pendingLocale, storedCodeUnrepresentable, choose } =
     useLocalePreference();
   // What the radio shows: the pick still on its way, else what is applied.
   // Binding to `locale` alone would make reselecting the original language
@@ -58,15 +58,15 @@ export function UserMenu({ userInitial }: UserMenuProps) {
     if (languageLocked) return;
     const next = SUPPORTED_LOCALES.find((l) => l === value);
     if (!next) return;
-    // Reselecting what is already shown is normally a no-op -- except when
-    // the worker's stored code is not one this client can represent (an
-    // unsupported code leaves the hint undefined and the chrome on the
-    // default locale). Then the shown option is the one value the user
-    // cannot otherwise reach, and picking it must be able to overwrite what
-    // the worker holds. The hint is also undefined while the mount-time GET
-    // is still out, where writing the shown locale is what the user asked
-    // for and supersedes the load through the provider's chain.
-    if (next === selectedLocale && responseLanguageHint !== undefined) return;
+    // Reselecting what is already shown is a no-op -- except when the worker
+    // holds a code this client has no locale for. The chrome then shows the
+    // fallback while replies stay in the stored language, so the shown
+    // option is the one value the user cannot otherwise reach and picking it
+    // must be able to overwrite what the worker holds. Deliberately not
+    // keyed off a missing hint, which is also the state while the load is
+    // out: a reselection then would abort the load and persist the chrome's
+    // locale over a stored preference this client has not read yet.
+    if (next === selectedLocale && !storedCodeUnrepresentable) return;
     void choose(next);
   };
 

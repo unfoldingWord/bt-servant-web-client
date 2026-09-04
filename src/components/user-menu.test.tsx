@@ -161,7 +161,7 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
   it("writes the displayed locale when the stored code is one this client cannot represent", async () => {
     stubNavigatorLanguage(locale);
     const harness = installFakeBff({
-      storedPreferences: { response_language: "es" },
+      storedPreferences: { response_language: "xx" },
     });
     render(
       <LocaleProvider>
@@ -187,6 +187,51 @@ describe.each(SUPPORTED_LOCALES)("UserMenu [%s]", (locale) => {
     expect(harness.preferencePuts).toEqual([
       { response_language: toResponseLanguage(DEFAULT_LOCALE) },
     ]);
+  });
+
+  // Regression: the exception above must not be keyed off a missing hint,
+  // which is also the state while the mount GET is out. A reselection then
+  // would abort the load and persist the chrome's locale over a stored
+  // preference this client has not read yet.
+  it("writes nothing when the shown locale is reselected while the load is still out", async () => {
+    stubNavigatorLanguage(locale);
+    let answer: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const harness = installFakeBff({
+      storedPreferences: { response_language: toResponseLanguage(other) },
+      preferenceGetResponse: async () => {
+        await held;
+        return new Response(
+          JSON.stringify({ response_language: toResponseLanguage(other) }),
+          { headers: { "Content-Type": "application/json" } }
+        );
+      },
+    });
+    render(
+      <LocaleProvider>
+        <AssistantProvider>
+          <UserMenu userInitial="S" />
+        </AssistantProvider>
+      </LocaleProvider>
+    );
+    await harness.bodyConsumed("/api/auth/csrf");
+    const user = userEvent.setup();
+
+    await openMenu(user, dict);
+    await user.click(
+      screen.getByRole("menuitemradio", { name: LOCALES[locale].displayName })
+    );
+    await act(async () => {});
+    expect(harness.preferencePuts).toEqual([]);
+
+    answer();
+    await act(async () => {});
+    await waitFor(() =>
+      expect(document.documentElement).toHaveAttribute("lang", other)
+    );
+    expect(harness.preferencePuts).toEqual([]);
   });
 
   // Regression: the radio is bound to the pending pick, not the applied

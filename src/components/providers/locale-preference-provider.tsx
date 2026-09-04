@@ -58,6 +58,17 @@ interface LocalePreferenceContextValue {
    */
   pendingLocale: Locale | null;
   /**
+   * True only when the worker's stored `response_language` is a code this
+   * client has no locale for. The chrome then falls back to the default
+   * locale while the worker keeps replying in what it stored, so the shown
+   * option is the one value the picker must still be able to write — the
+   * usual "reselecting what is shown does nothing" rule would strand the
+   * user. False in every other state, including while the load is still
+   * out, so a reselection can never abort the load and overwrite a stored
+   * preference the client has not read yet.
+   */
+  storedCodeUnrepresentable: boolean;
+  /**
    * Persists `locale` as the user's `response_language`, then applies it to
    * the chrome (through the same hold as the load: never under an animating
    * reply). Every write shares one chain, the first-visit seed included:
@@ -155,6 +166,8 @@ export function LocalePreferenceProvider({
   // The latest pick that has not reached the chrome yet, so the picker can
   // show it and a reselection of the applied locale can reverse it.
   const [pendingLocale, setPendingLocale] = useState<Locale | null>(null);
+  const [storedCodeUnrepresentable, setStoredCodeUnrepresentable] =
+    useState(false);
   // The mount-time load, so `choose` can cancel it; bumping the nonce runs
   // it again.
   const loadRef = useRef<AbortController | null>(null);
@@ -168,6 +181,11 @@ export function LocalePreferenceProvider({
   const acknowledge = useCallback((acked: Locale, hint: string | undefined) => {
     ackedLocaleRef.current = acked;
     ackedHintRef.current = hint;
+    // No hint means the worker holds a code this client has no locale for:
+    // the chrome shows the fallback while the worker replies in something
+    // else. A representable acknowledgement (a good stored code, the
+    // first-visit seed, or any successful pick) clears it again.
+    setStoredCodeUnrepresentable(hint === undefined);
   }, []);
   // Picks are numbered so only the latest one writes and applies. Every
   // PUT (the first-visit seed included) runs one after another on this
@@ -333,8 +351,22 @@ export function LocalePreferenceProvider({
   );
 
   const value = useMemo<LocalePreferenceContextValue>(
-    () => ({ locale, pendingLocale, ready, responseLanguageHint, choose }),
-    [locale, pendingLocale, ready, responseLanguageHint, choose]
+    () => ({
+      locale,
+      pendingLocale,
+      storedCodeUnrepresentable,
+      ready,
+      responseLanguageHint,
+      choose,
+    }),
+    [
+      locale,
+      pendingLocale,
+      storedCodeUnrepresentable,
+      ready,
+      responseLanguageHint,
+      choose,
+    ]
   );
 
   return (
