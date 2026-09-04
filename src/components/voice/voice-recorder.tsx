@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useT } from "@/i18n";
 import { MicIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect } from "react";
 
@@ -18,6 +19,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
     cancelRecording,
     recordingDuration,
   } = useVoiceRecorder();
+  const t = useT();
 
   // Auto-start recording when component mounts
   useEffect(() => {
@@ -66,7 +68,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
           )}
         </div>
         <span className="text-sm font-medium">
-          {isRecording ? "Recording..." : "Starting..."}
+          {isRecording ? t("recorder.recording") : t("recorder.starting")}
         </span>
         <span className="text-muted-foreground text-sm">
           {formatDuration(recordingDuration)}
@@ -74,7 +76,12 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
       </div>
 
       <div className="flex gap-2">
-        <Button variant="outline" size="icon" onClick={handleCancel}>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleCancel}
+          aria-label={t("recorder.cancel")}
+        >
           <XIcon className="size-4" />
         </Button>
         <Button
@@ -83,6 +90,7 @@ export function VoiceRecorder({ onComplete, onCancel }: VoiceRecorderProps) {
           onClick={handleStop}
           disabled={!isRecording}
           className="bg-red-500 hover:bg-red-600"
+          aria-label={t("recorder.stop")}
         >
           <SquareIcon className="size-4" />
         </Button>

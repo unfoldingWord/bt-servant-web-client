@@ -130,6 +130,108 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // ===========================================
+  // I18N: the dictionary layer is a leaf
+  // src/i18n/** may import only from itself and from types
+  // ===========================================
+  {
+    files: ["**/i18n/**/*.ts", "**/i18n/**/*.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/lib/*", "@/lib/**"],
+              message: "i18n cannot import from lib (leaf layer)",
+            },
+            {
+              group: ["@/hooks/*", "@/hooks/**"],
+              message: "i18n cannot import from hooks (leaf layer)",
+            },
+            {
+              group: ["@/components/*", "@/components/**"],
+              message: "i18n cannot import from components (leaf layer)",
+            },
+            {
+              group: ["@/app/*", "@/app/**"],
+              message: "i18n cannot import from app (leaf layer)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ===========================================
+  // I18N: no hardcoded user-facing strings in JSX (see docs/i18n.md)
+  //
+  // Every user-visible string must come from src/i18n via useT()/t().
+  // `react/jsx-no-literals` catches JSX text children and `{"literal"}`
+  // expression containers. It is run with `ignoreProps: true` because with
+  // `ignoreProps: false` the rule reports every string attribute
+  // (className, type, svg `d`, ...) with no per-attribute filter — 196 hits
+  // on this tree. The user-facing attributes and the ternary/logical
+  // literals the rule does not see are covered by the `no-restricted-syntax`
+  // selectors below instead. Both only see JSX: strings a hook or lib
+  // module returns for display are convention-only (docs/i18n.md).
+  // ===========================================
+  {
+    files: [
+      "src/components/**/*.tsx",
+      "src/app/**/*.tsx",
+      "src/hooks/**/*.{ts,tsx}",
+    ],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: {
+      "react/jsx-no-literals": [
+        "error",
+        {
+          noStrings: true,
+          ignoreProps: true,
+          allowedStrings: [
+            // Punctuation / glyphs rendered as JSX text
+            "·",
+            // Product names are not translation targets
+            "BT Servant",
+            "BTS Web",
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          // aria-label="text"
+          selector:
+            "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > Literal",
+          message:
+            "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
+        },
+        {
+          // aria-label={"text"} and aria-label={`text`}. A template literal counts
+          // only if its static text has letters: `${minutes}:${seconds}` is a
+          // value, not copy (same filter as the Literal[value=...] selectors).
+          selector:
+            "JSXAttribute[name.name=/^(aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt|tooltip|label)$/] > JSXExpressionContainer > :matches(Literal, TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
+          message:
+            "User-facing attribute strings must come from the i18n dictionary (useT()/t()). See docs/i18n.md.",
+        },
+        {
+          selector:
+            "JSXExpressionContainer > ConditionalExpression > :matches(Literal[value=/[A-Za-z]{2,}/], TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
+          message:
+            "Hardcoded string in a JSX conditional; use the i18n dictionary (useT()/t()). See docs/i18n.md.",
+        },
+        {
+          selector:
+            "JSXExpressionContainer > LogicalExpression > :matches(Literal[value=/[A-Za-z]{2,}/], TemplateLiteral:has(TemplateElement[value.raw=/[A-Za-z]{2,}/]))",
+          message:
+            "Hardcoded string in a JSX logical expression; use the i18n dictionary (useT()/t()). See docs/i18n.md.",
+        },
+      ],
+    },
+  },
+
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

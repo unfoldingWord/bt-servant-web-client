@@ -6,6 +6,7 @@ import {
 } from "@assistant-ui/react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { track } from "@/lib/analytics";
+import type { MessageKey } from "@/i18n";
 import type {
   Attachment,
   ChatResponse,
@@ -13,14 +14,24 @@ import type {
   SSEEvent,
 } from "@/types/engine";
 
-const FALLBACK_ERROR_MESSAGE =
-  "Sorry, I encountered an error. Please try again.";
-const TIMEOUT_ERROR_MESSAGE =
-  "Sorry, that took too long and the response was cut off. Please try again.";
-
 type TimeoutReason = "hard_max_timeout" | "inactivity_timeout";
 /** Why a turn failed; the `reason` property on `chat_response_failed`. */
 type ChatFailureReason = TimeoutReason | "error";
+
+// The hook is locale-agnostic: it never holds user-facing copy, only the
+// dictionary keys below. The thread translates them at render time.
+
+/** Canned error copy the runtime can attach to an assistant message. */
+export type ErrorKey = Extract<MessageKey, `error.${string}`>;
+/** Status copy the runtime shows on its own, before the worker says anything. */
+export type StatusKey = Extract<MessageKey, `status.${string}`>;
+
+/**
+ * What the loading indicator shows: a key the view translates, or status text
+ * from the worker, rendered as-is (the worker's structured status `key`
+ * replaces the text in #51 PR 3).
+ */
+export type RuntimeStatus = { key: StatusKey } | { text: string };
 
 interface ChatMessage {
   id: string;
@@ -31,6 +42,11 @@ interface ChatMessage {
   audioUrl?: string;
   isStreaming?: boolean;
   attachments?: Attachment[];
+  /**
+   * Set on the canned error messages the runtime appends. The text content
+   * is left empty; the thread renders `t(errorKey)` instead.
+   */
+  errorKey?: ErrorKey;
 }
 
 function toThreadMessage(message: ChatMessage): ThreadMessageLike {
@@ -45,6 +61,7 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
         audioUrl: message.audioUrl,
         isStreaming: message.isStreaming,
         attachments: message.attachments,
+        errorKey: message.errorKey,
       },
     },
   };
@@ -71,6 +88,7 @@ function createMessage(
     audioUrl?: string;
     isStreaming?: boolean;
     attachments?: Attachment[];
+    errorKey?: ErrorKey;
   }
 ): ChatMessage {
   return {
@@ -82,13 +100,14 @@ function createMessage(
     audioUrl: opts?.audioUrl,
     isStreaming: opts?.isStreaming,
     attachments: opts?.attachments,
+    errorKey: opts?.errorKey,
   };
 }
 
 export function useChatRuntime() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [streamingText, setStreamingText] = useState<string>("");
   const [isAudioRequest, setIsAudioRequest] = useState(false);
   const isAudioRequestRef = useRef(false);
@@ -165,7 +184,7 @@ export function useChatRuntime() {
     abortControllerRef.current?.abort();
     setStreamingText("");
     setIsLoading(false);
-    setStatusMessage(null);
+    setStatus(null);
     pendingCompleteRef.current = null;
 
     const historyAbort = new AbortController();
@@ -194,7 +213,7 @@ export function useChatRuntime() {
     setIsCompleting(false);
     setIsLoading(false);
     setIsAudioRequest(false);
-    setStatusMessage(null);
+    setStatus(null);
     setMessages((prev) => [...prev, pending.message]);
     setStreamingText("");
   }, []);
@@ -235,7 +254,7 @@ export function useChatRuntime() {
       setIsLoading(false);
       setIsAudioRequest(false);
       isAudioRequestRef.current = false;
-      setStatusMessage(null);
+      setStatus(null);
       setStreamingText("");
       return;
     }
@@ -246,12 +265,15 @@ export function useChatRuntime() {
     pendingCompleteRef.current = { message: assistantMessage };
     setStreamingText(joinedResponse);
     setIsCompleting(true);
-    setStatusMessage(null);
+    setStatus(null);
   }, []);
 
+  // Appends a canned error turn. The copy is chosen at render time from
+  // `errorKey`; the raw cause is only ever logged. `reason` is the analytics
+  // dimension on `chat_response_failed` and is independent of the copy.
   const handleError = useCallback(
-    (errorMessage: string, reason: ChatFailureReason = "error") => {
-      console.error("[handleError]", reason, errorMessage);
+    (errorKey: ErrorKey, reason: ChatFailureReason = "error") => {
+      console.error("[handleError]", reason, errorKey);
       track("chat_response_failed", {
         reason,
         duration_ms: sentAtRef.current
@@ -265,10 +287,10 @@ export function useChatRuntime() {
       isAudioRequestRef.current = false;
       setMessages((prev) => [
         ...prev,
-        createMessage(`error-${Date.now()}`, "assistant", errorMessage),
+        createMessage(`error-${Date.now()}`, "assistant", "", { errorKey }),
       ]);
       setIsLoading(false);
-      setStatusMessage(null);
+      setStatus(null);
       setStreamingText("");
     },
     []
@@ -284,7 +306,8 @@ export function useChatRuntime() {
         setMessages((prev) => [...prev, pending.message]);
       }
 
-      // Add user message
+      // Add user message. "[Voice message]" is a data sentinel (persisted in
+      // history, compared by equality in thread.tsx) — never localize it.
       const userMessage = createMessage(
         `user-${Date.now()}`,
         "user",
@@ -301,7 +324,7 @@ export function useChatRuntime() {
       setIsLoading(true);
       setIsAudioRequest(!!audioBase64);
       isAudioRequestRef.current = !!audioBase64;
-      setStatusMessage(null);
+      setStatus(null);
       setStreamingText("");
 
       const HARD_MAX_MS = 300_000; // 5 min absolute ceiling
@@ -369,7 +392,7 @@ export function useChatRuntime() {
         const decoder = new TextDecoder();
         let buffer = "";
 
-        setStatusMessage("Connecting...");
+        setStatus({ key: "status.connecting" });
 
         while (true) {
           const { done, value } = await reader.read();
@@ -398,7 +421,7 @@ export function useChatRuntime() {
               lastEventTime = Date.now();
 
               if (parsed.type === "status") {
-                setStatusMessage(parsed.message);
+                setStatus({ text: parsed.message });
                 // TTS can take minutes for long responses — extend inactivity
                 // window for all audio requests, plus keyword fallback for
                 // text requests that unexpectedly generate audio
@@ -434,7 +457,7 @@ export function useChatRuntime() {
                 // Log raw, show canned fallback — never render the worker's
                 // error string (may be a raw upstream API body) in the chat
                 console.error("[sse] error event:", parsed.error);
-                handleError(FALLBACK_ERROR_MESSAGE);
+                handleError("error.generic");
                 handledTerminal = true;
               } else if (parsed.type === "keepalive") {
                 // no-op — lastEventTime already updated above
@@ -453,14 +476,14 @@ export function useChatRuntime() {
         // Stream ended — ensure we got a terminal event
         if (!handledTerminal) {
           console.warn("[sse] stream ended without terminal event");
-          handleError("Connection lost. Please try again.");
+          handleError("error.connectionLost");
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           // Our own timers aborted: that is a failed response, not a
           // cancellation, so it must show up in `chat_response_failed`.
           if (timeoutReason && !handledTerminal) {
-            handleError(TIMEOUT_ERROR_MESSAGE, timeoutReason);
+            handleError("error.timeout", timeoutReason);
             return;
           }
           // Unmount / superseded request: reset silently.
@@ -470,12 +493,12 @@ export function useChatRuntime() {
           setIsLoading(false);
           setIsAudioRequest(false);
           isAudioRequestRef.current = false;
-          setStatusMessage(null);
+          setStatus(null);
           setStreamingText("");
           return;
         }
         console.error("[sendMessage] error", error);
-        handleError(FALLBACK_ERROR_MESSAGE);
+        handleError("error.generic");
       } finally {
         if (hardMaxTimer) clearTimeout(hardMaxTimer);
         if (inactivityTimer) clearInterval(inactivityTimer);
@@ -523,7 +546,7 @@ export function useChatRuntime() {
     messages: allMessages,
     isLoading,
     isAudioRequest,
-    statusMessage,
+    status,
     streamingText,
     sendMessage,
     clearMessages: () => setMessages([]),

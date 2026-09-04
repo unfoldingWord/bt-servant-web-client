@@ -1,31 +1,29 @@
-// English copy fixture every test imports from, so string assertions live in
-// one place. PR 2 replaces this with a re-export of `@/i18n/en`.
+// Copy fixture every UI test imports from. The dictionaries are the source of
+// truth, re-exported here so a test never duplicates a string: an assertion
+// reads `dict["thread.welcome"]`, and a wording change fails nowhere but in
+// the dictionary and its parity test.
+import type { Dictionary } from "@/i18n";
 
-export const GREETING = "Hello, I'm BT Servant. How can I serve you today?";
-export const PLACEHOLDER = "How can I help you today?";
-export const DISCLAIMER =
-  "BT Servant can make mistakes. Please double-check responses.";
+export {
+  DEFAULT_LOCALE,
+  LOCALES,
+  SUPPORTED_LOCALES,
+  en,
+  ptBR,
+  type Dictionary,
+  type Locale,
+  type MessageKey,
+} from "@/i18n";
 
-export const CHIPS = [
-  {
-    label: "Help me translate John 3:16",
-    prompt: "Help me translate John 3:16",
-  },
-  { label: "Summarize Gen 1:1-5", prompt: "Can you summarize Genesis 1:1-5?" },
-  { label: "Tell me about Amos", prompt: "Tell me about Amos in the Bible" },
-];
+/** The suggestion chips of `dict`, as `{ label, prompt }` in key order. */
+export function chipsFor(dict: Dictionary) {
+  return Object.keys(dict)
+    .filter((k) => /^thread\.suggestion\..+\.label$/.test(k))
+    .map((labelKey) => ({
+      label: dict[labelKey as keyof Dictionary],
+      prompt: dict[labelKey.replace(/label$/, "prompt") as keyof Dictionary],
+    }));
+}
 
-export const VOICE_MESSAGE_LABEL = "Voice message";
-export const SHOW_TRANSCRIPT = "Show transcript";
-
-export const CONNECTING = "Connecting...";
-export const CONNECTION_LOST = "Connection lost. Please try again.";
-export const FALLBACK_ERROR =
-  "Sorry, I encountered an error. Please try again.";
-export const TIMEOUT_ERROR =
-  "Sorry, that took too long and the response was cut off. Please try again.";
-
-export const GLOBAL_ERROR_HEADING = "Something went wrong.";
-export const GLOBAL_ERROR_RETRY = "Try again";
-
+// Not copy: unit labels are deliberately left untranslated (docs/i18n.md).
 export const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;

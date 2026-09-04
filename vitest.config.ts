@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     restoreMocks: true,
     unstubGlobals: true,
+    unstubEnvs: true,
     // teardownMounted (src/test/timers.ts) relies on file-level afterEach running
     // before the setup file's cleanup(); pin the order instead of trusting the default.
     sequence: { hooks: "stack" },

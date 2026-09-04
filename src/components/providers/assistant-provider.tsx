@@ -1,7 +1,7 @@
 "use client";
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { useChatRuntime } from "@/hooks/use-chat-runtime";
+import { useChatRuntime, type RuntimeStatus } from "@/hooks/use-chat-runtime";
 import { createContext, useContext, ReactNode } from "react";
 
 interface ChatContextValue {
@@ -12,7 +12,7 @@ interface ChatContextValue {
   ) => Promise<void>;
   isLoading: boolean;
   isAudioRequest: boolean;
-  statusMessage: string | null;
+  status: RuntimeStatus | null;
   streamingText: string;
   finalizeComplete: () => void;
   isCompleting: boolean;
@@ -33,7 +33,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     sendMessage,
     isLoading,
     isAudioRequest,
-    statusMessage,
+    status,
     streamingText,
     finalizeComplete,
     isCompleting,
@@ -45,7 +45,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         sendMessage,
         isLoading,
         isAudioRequest,
-        statusMessage,
+        status,
         streamingText,
         finalizeComplete,
         isCompleting,
