@@ -126,8 +126,10 @@ export async function saveLocalePreference(
  * On mount it runs one load: `GET` the preference; a stored value is applied
  * with `setLocale(normalizeLocale(it))` (an explicit choice beats the
  * browser; an unsupported code falls back to the default locale for the
- * chrome only); nothing stored means a first visit on any device, and the
- * browser's locale (`getClientLocale()`, read at PUT time: during hydration
+ * chrome only); `response_language: null` or an absent field means nothing
+ * is stored — a first visit on any device (the worker returns `null` in
+ * that state, bt-servant-worker#408, rather than merging its own default) —
+ * and the browser's locale (`getClientLocale()`, read at PUT time: during hydration
  * React state may still hold the server snapshot) is seeded with one `PUT`
  * so it follows the user, queued on the same write chain as picks. Only
  * the mount whose `GET` came back empty writes; an aborted mount (unmount,
@@ -215,6 +217,9 @@ export function LocalePreferenceProvider({
         const stored = await readPreferences(signal);
         if (signal.aborted) return;
 
+        // A real code is an explicit choice; `null` or an absent field
+        // (bt-servant-worker#408) is "nothing stored" and falls to the seed
+        // branch, the same as the empty string an older worker sent.
         if (stored.response_language) {
           const preferred = normalizeLocale(stored.response_language);
           setLoaded(preferred);
@@ -229,7 +234,7 @@ export function LocalePreferenceProvider({
           setResponseLanguageHint(hint);
         } else {
           const browser = getClientLocale();
-          // Nothing stored: the browser code is what the worker will reply
+          // Nothing stored (`null`/absent/empty): the browser code is what the worker will reply
           // in once the seed lands, and what it falls back to if it does not.
           acknowledge(browser, toResponseLanguage(browser));
           setResponseLanguageHint(toResponseLanguage(browser));
