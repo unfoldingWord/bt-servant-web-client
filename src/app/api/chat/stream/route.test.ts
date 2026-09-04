@@ -105,6 +105,19 @@ describe("POST /api/chat/stream", () => {
     expect(body.audio_format).toBe("webm");
   });
 
+  it("forwards response_language_hint when the client sends one, and omits it otherwise", async () => {
+    await POST(streamRequest({ message: "Olá", response_language_hint: "pt" }));
+    expect(JSON.parse(upstreamCall()[1].body as string)).toMatchObject({
+      response_language_hint: "pt",
+    });
+
+    fetchMock.mockClear();
+    await POST(streamRequest({ message: "Hello" }));
+    expect(JSON.parse(upstreamCall()[1].body as string)).not.toHaveProperty(
+      "response_language_hint"
+    );
+  });
+
   it("returns 401 and does not call upstream without a session", async () => {
     authMock.mockResolvedValueOnce(null);
 

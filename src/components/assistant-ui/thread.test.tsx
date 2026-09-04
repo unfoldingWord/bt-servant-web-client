@@ -1,12 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssistantProvider } from "@/components/providers/assistant-provider";
+import { UserMenu } from "@/components/user-menu";
 import { LocaleProvider } from "@/i18n";
-import type { ChatHistoryEntry } from "@/types/engine";
+import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
+import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
 import { consoleSpy } from "@/test/console";
-import { chipsFor, LOCALES, SUPPORTED_LOCALES, type Locale } from "@/test/copy";
-import { installFakeBff } from "@/test/fake-bff";
+import {
+  chipsFor,
+  LOCALES,
+  SUPPORTED_LOCALES,
+  toResponseLanguage,
+  type Locale,
+} from "@/test/copy";
+import { installFakeBff, PREFERENCES_ROUTE } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import { stubNavigatorLanguage } from "@/test/navigator";
 import { sseResponse } from "@/test/sse";
@@ -28,11 +42,9 @@ import { Thread } from "./thread";
 // way the app seeds it, from navigator.language on mount. Every suite runs
 // once per supported locale, reading its copy from that locale's dictionary.
 
-// The literal stored for a voice turn with no transcript. Kept local on
-// purpose: the test's point is that this literal never reaches the screen.
-const VOICE_SENTINEL = "[Voice message]";
 const ENGINE_REPLY = "Reply from the engine.";
 const AUDIO_ROUTE = "/api/audio";
+const WAIT = { interval: 5 };
 
 // Unmount (and close any stream still open) inside act, under the clock the
 // test left installed, before the setup file restores the console spies.
@@ -43,20 +55,49 @@ async function renderThread({
   historyEntries = [],
   liveStream = false,
   locale = "en",
+  withUserMenu = false,
+  storedPreferences,
+  deferPreferences = false,
+  preferencePutResponse,
 }: {
   historyEntries?: ChatHistoryEntry[];
   /** Leave the stream open for the test to push events into. */
   liveStream?: boolean;
   /** Seeded through navigator.language, as in the browser. */
   locale?: Locale;
+  /** Also render the header's UserMenu (the language picker) next to the thread. */
+  withUserMenu?: boolean;
+  /** What the worker has stored for this user; default nothing. */
+  storedPreferences?: UserPreferences;
+  /**
+   * Leave `GET /api/preferences` unanswered until the test calls the returned
+   * `answerPreferences`; the mount-time load is then still in flight.
+   */
+  deferPreferences?: boolean;
+  /** Answers the seed/pick `PUT` (see fake-bff); default 200. */
+  preferencePutResponse?: () => Response | Promise<Response>;
 } = {}) {
   stubNavigatorLanguage(locale);
+  let answerPreferences!: (body: UserPreferences) => void;
   const harness = installFakeBff({
     historyEntries,
+    storedPreferences,
+    preferencePutResponse,
     onStream: liveStream
       ? undefined
       : () => sseResponse([completeEvent([ENGINE_REPLY])]),
     extraRoutes: {
+      ...(deferPreferences && {
+        [PREFERENCES_ROUTE]: () =>
+          new Promise<Response>((resolve) => {
+            answerPreferences = (body) =>
+              resolve(
+                new Response(JSON.stringify(body), {
+                  headers: { "Content-Type": "application/json" },
+                })
+              );
+          }),
+      }),
       // AudioPlayer fetches the proxied clip and calls res.blob(); audio
       // bytes exercise its happy path (URL.createObjectURL is stubbed in
       // setup). Bytes, not a Blob body: jsdom's Blob has no stream() and
@@ -70,6 +111,7 @@ async function renderThread({
   const { unmount } = render(
     <LocaleProvider>
       <AssistantProvider>
+        {withUserMenu && <UserMenu userInitial="S" />}
         <Thread />
       </AssistantProvider>
     </LocaleProvider>
@@ -78,14 +120,17 @@ async function renderThread({
   // The first paint is always the empty state (messages start as []). Wait
   // for history to be applied so the branch under test is the one the user
   // would actually see; for a non-empty thread that is the greeting leaving.
+  // The provider also reads the stored preference on mount; wait for that
+  // too so a stored locale has been applied before any assertion.
   await harness.historyLoaded();
+  if (!deferPreferences) await harness.preferencesLoaded();
   if (historyEntries.length > 0) {
     const greeting = LOCALES[locale].dictionary["thread.welcome"];
     await waitFor(() =>
       expect(screen.queryByText(greeting)).not.toBeInTheDocument()
     );
   }
-  return harness;
+  return { ...harness, answerPreferences };
 }
 
 describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
@@ -108,6 +153,9 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       ).toBeInTheDocument();
       expect(document.documentElement.lang).toBe(locale);
 
+      // The product ships exactly three chips; `chipsFor` grows with the
+      // dictionary, so the count is pinned here, not derived.
+      expect(CHIPS).toHaveLength(3);
       // Every fixture chip is on screen, and nothing else with the button role
       // but the composer's send button: jsdom has no MediaRecorder, so the
       // voice button is not rendered. Counting all buttons (not the chips we
@@ -248,6 +296,229 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
     });
   });
 
+  describe("language preference", () => {
+    const other = SUPPORTED_LOCALES.find((l) => l !== locale)!;
+    const otherDict = LOCALES[other].dictionary;
+
+    it(`a stored preference for ${other} wins over the browser's ${locale} on load`, async () => {
+      const harness = await renderThread({
+        locale,
+        storedPreferences: {
+          response_language: toResponseLanguage(other),
+        },
+      });
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(otherDict["thread.welcome"])
+          ).toBeInTheDocument(),
+        WAIT
+      );
+      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(other);
+      expect(harness.preferencePuts).toEqual([]);
+    });
+
+    it(`picking ${LOCALES[other].displayName} in the user menu PUTs the preference and re-renders the whole thread in ${other} without a reload`, async () => {
+      const harness = await renderThread({ locale, withUserMenu: true });
+      const user = userEvent.setup();
+
+      await user.click(
+        screen.getByRole("button", { name: dict["userMenu.trigger"] })
+      );
+      await user.click(
+        screen.getByRole("menuitemradio", {
+          name: LOCALES[other].displayName,
+        })
+      );
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(otherDict["thread.welcome"])
+          ).toBeInTheDocument(),
+        WAIT
+      );
+      expect(harness.preferencePuts.at(-1)).toEqual({
+        response_language: toResponseLanguage(other),
+      });
+      expect(
+        screen.getByPlaceholderText(otherDict["composer.placeholder"])
+      ).toBeInTheDocument();
+      for (const chip of chipsFor(otherDict)) {
+        expect(
+          screen.getByRole("button", { name: chip.label })
+        ).toBeInTheDocument();
+      }
+      expect(screen.queryByText(GREETING)).not.toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(other);
+      // Picking a language is not a message.
+      expect(harness.streamBodies).toEqual([]);
+    });
+
+    // A first-time user can send before the seed PUT lands; the request is
+    // self-describing, so the reply language does not depend on it.
+    it("sends the browser-derived response_language_hint while the first-visit seed PUT is still pending", async () => {
+      const harness = await renderThread({
+        locale,
+        preferencePutResponse: () => new Promise<Response>(() => {}),
+      });
+      const user = userEvent.setup();
+      // The empty GET was read and the seed PUT is out but unanswered.
+      await waitFor(() => expect(harness.preferencePuts).toHaveLength(1), WAIT);
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(1), WAIT);
+      expect(harness.streamBodies[0]).toMatchObject({
+        message: CHIPS[0].prompt,
+        response_language_hint: toResponseLanguage(locale),
+      });
+    });
+
+    // Regression: a returning user whose stored preference has not loaded
+    // yet must not be hinted with the browser's language; absence lets the
+    // worker use what it has stored. Once loaded, the stored code is sent.
+    it(`sends no hint while a stored ${other} is still loading, then ${toResponseLanguage(other)} once it has`, async () => {
+      const harness = await renderThread({ locale, deferPreferences: true });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(1), WAIT);
+      expect(harness.streamBodies[0]).not.toHaveProperty(
+        "response_language_hint"
+      );
+      await screen.findByText(ENGINE_REPLY);
+
+      harness.answerPreferences({
+        response_language: toResponseLanguage(other),
+      });
+      await harness.preferencesLoaded();
+      await waitFor(
+        () => expect(document.documentElement.lang).toBe(other),
+        WAIT
+      );
+
+      await user.type(screen.getByRole("textbox"), "again");
+      await user.click(
+        screen.getByRole("button", { name: otherDict["composer.send"] })
+      );
+      await waitFor(() => expect(harness.streamBodies).toHaveLength(2), WAIT);
+      expect(harness.streamBodies[1]).toMatchObject({
+        message: "again",
+        response_language_hint: toResponseLanguage(other),
+      });
+    });
+
+    // Regression: the locale must never flip under an animating reply, even
+    // when the mount-time load settles mid-stream: the loaded value is held
+    // and applied once the reply has landed.
+    it(`a stored ${other} that loads while a reply streams is applied only after the reply lands`, async () => {
+      const harness = await renderThread({
+        locale,
+        liveStream: true,
+        deferPreferences: true,
+      });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
+
+      harness.answerPreferences({
+        response_language: toResponseLanguage(other),
+      });
+      await harness.preferencesLoaded();
+      await act(async () => {});
+
+      // Mid-stream: still this locale.
+      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(locale);
+
+      const stream = harness.streams[0];
+      stream.push(completeEvent([ENGINE_REPLY]));
+      stream.close();
+      await screen.findByText(ENGINE_REPLY);
+
+      // The reply has landed: the held preference applies.
+      await waitFor(
+        () =>
+          expect(
+            screen.getByPlaceholderText(otherDict["composer.placeholder"])
+          ).toBeInTheDocument(),
+        WAIT
+      );
+      expect(document.documentElement.lang).toBe(other);
+      expect(harness.preferencePuts).toEqual([]);
+      expect(consoleSpy.error).not.toHaveBeenCalled();
+    });
+
+    // Regression: the locale must never flip under an animating reply. The
+    // picker locks itself while a reply is in flight and unlocks when the
+    // reply has landed.
+    it("locks the language picker with a hint while a reply streams and unlocks it once the reply lands", async () => {
+      const harness = await renderThread({
+        locale,
+        liveStream: true,
+        withUserMenu: true,
+        // A returning user: the load applies the stored value and seeds
+        // nothing, so any PUT below would be the picker's.
+        storedPreferences: { response_language: toResponseLanguage(locale) },
+      });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: CHIPS[0].label }));
+      await waitFor(() => expect(harness.streams).toHaveLength(1), WAIT);
+
+      await user.click(
+        screen.getByRole("button", { name: dict["userMenu.trigger"] })
+      );
+      await screen.findByRole("menu");
+      const hint = screen.getByText(
+        dict["userMenu.languageLockedWhileReplying"]
+      );
+      for (const item of screen.getAllByRole("menuitemradio")) {
+        expect(item).toHaveAttribute("aria-disabled", "true");
+        // The reason is announced with the item...
+        expect(item).toHaveAttribute("aria-describedby", hint.id);
+        expect(item).toHaveAccessibleDescription(
+          dict["userMenu.languageLockedWhileReplying"]
+        );
+      }
+      // ...which the keyboard can still reach: Radix `disabled` would drop
+      // it out of arrow navigation.
+      await user.keyboard("{ArrowDown}");
+      expect(document.activeElement).toHaveAttribute("role", "menuitemradio");
+      // A click on a locked item changes nothing.
+      await user.click(
+        screen.getByRole("menuitemradio", {
+          name: LOCALES[other].displayName,
+        })
+      );
+      expect(harness.preferencePuts).toEqual([]);
+      expect(document.documentElement.lang).toBe(locale);
+
+      // A chunk streams, then the reply completes and animates to the end
+      // (the completing phase, where isLoading is still true and
+      // isCompleting flips); only then does the same open menu unlock.
+      const stream = harness.streams[0];
+      stream.push({ type: "progress", text: ENGINE_REPLY.slice(0, 6) });
+      stream.push(completeEvent([ENGINE_REPLY]));
+      stream.close();
+      await waitFor(
+        () =>
+          expect(
+            screen.queryByText(dict["userMenu.languageLockedWhileReplying"])
+          ).not.toBeInTheDocument(),
+        WAIT
+      );
+      for (const item of screen.getAllByRole("menuitemradio")) {
+        expect(item).not.toHaveAttribute("aria-disabled");
+        expect(item).not.toHaveAttribute("aria-describedby");
+      }
+    });
+  });
+
   describe("with messages", () => {
     const textHistory: ChatHistoryEntry[] = [
       {
@@ -279,7 +550,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       await renderThread({
         historyEntries: [
           {
-            user_message: VOICE_SENTINEL,
+            user_message: VOICE_MESSAGE_SENTINEL,
             assistant_response: "Here is what I heard.",
             created_at: "2026-09-01T12:00:00Z",
           },
@@ -287,7 +558,9 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
         locale,
       });
 
-      expect(screen.queryByText(VOICE_SENTINEL)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(VOICE_MESSAGE_SENTINEL)
+      ).not.toBeInTheDocument();
       const label = screen.getByText(dict["message.voiceMessage"]);
       // The label is decorated with the mic icon (lucide renders an <svg>).
       expect(label.querySelector("svg")).not.toBeNull();
@@ -297,7 +570,7 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       const harness = await renderThread({
         historyEntries: [
           {
-            user_message: VOICE_SENTINEL,
+            user_message: VOICE_MESSAGE_SENTINEL,
             assistant_response: "Spoken reply transcript.",
             created_at: "2026-09-01T12:00:00Z",
             voice_audio_url: "https://audio.example/reply.mp3",
@@ -313,6 +586,28 @@ describe.each(SUPPORTED_LOCALES)("Thread [%s]", (locale) => {
       ).toBeInTheDocument();
       expect(
         screen.queryByText("Spoken reply transcript.")
+      ).not.toBeInTheDocument();
+
+      // The icon-only play control has a dictionary-backed name. jsdom's
+      // play() rejects (vitest.setup.ts), so a click reaches the player's
+      // catch and logs; the control stays a play button.
+      const user = userEvent.setup();
+      await user.click(
+        screen.getByRole("button", { name: dict["audioPlayer.play"] })
+      );
+      await waitFor(
+        () =>
+          expect(consoleSpy.error).toHaveBeenCalledWith(
+            "Failed to play audio:",
+            expect.any(DOMException)
+          ),
+        WAIT
+      );
+      expect(
+        screen.getByRole("button", { name: dict["audioPlayer.play"] })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: dict["audioPlayer.pause"] })
       ).not.toBeInTheDocument();
     });
   });

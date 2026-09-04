@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { en, type MessageKey } from "./en";
 import { DEFAULT_LOCALE, LOCALES, SUPPORTED_LOCALES } from "./locales";
-import { getInitialLocale, normalizeLocale, t } from "./t";
+import { getInitialLocale, normalizeLocale, t, toResponseLanguage } from "./t";
 
 // Values that are legitimately identical across locales (proper nouns).
 // Any other value that is byte-identical to its English source is an
@@ -37,6 +37,37 @@ describe("locale registry", () => {
     expect(t(DEFAULT_LOCALE, "thread.welcome")).toBe(
       "Hello, I'm BT Servant. How can I serve you today?"
     );
+  });
+
+  it("gives every locale a unique ISO 639-1 responseLanguage (the worker's ISO_639_1_PATTERN)", () => {
+    const codes = SUPPORTED_LOCALES.map((l) => LOCALES[l].responseLanguage);
+    for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it("gives every locale a distinct, non-empty native display name", () => {
+    const names = SUPPORTED_LOCALES.map((l) => LOCALES[l].displayName);
+    for (const name of names) expect(name.trim()).not.toBe("");
+    expect(new Set(names).size).toBe(names.length);
+    // Native, not English: the picker shows each language in itself.
+    expect(LOCALES["pt-BR"].displayName).toBe("Português (Brasil)");
+  });
+});
+
+describe("toResponseLanguage()", () => {
+  it.each([
+    ["en", "en"],
+    ["pt-BR", "pt"],
+  ] as const)("%s → %s", (locale, expected) => {
+    expect(toResponseLanguage(locale)).toBe(expected);
+  });
+
+  it("reads the registry's responseLanguage, which normalizes back to the same locale", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const code = toResponseLanguage(locale);
+      expect(code, locale).toBe(LOCALES[locale].responseLanguage);
+      expect(normalizeLocale(code), locale).toBe(locale);
+    }
   });
 });
 

@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
+import { useT } from "@/i18n";
 import { PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function AudioPlayer({
 }: AudioPlayerProps) {
   const { isPlaying, currentTime, duration, playUrl, load, pause, seek } =
     useAudioPlayer();
+  const t = useT();
   const progressRef = useRef<HTMLDivElement>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -122,6 +124,7 @@ export function AudioPlayer({
         variant="ghost"
         size="icon"
         onClick={handleToggle}
+        aria-label={isPlaying ? t("audioPlayer.pause") : t("audioPlayer.play")}
         className="size-8 text-[#6b6a68] hover:bg-[#e5e5dd] hover:text-[#1a1a18] dark:text-[#9a9893] dark:hover:bg-[#4a4a47] dark:hover:text-[#eee]"
       >
         {isPlaying ? (

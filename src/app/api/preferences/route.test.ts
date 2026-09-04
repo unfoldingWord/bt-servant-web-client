@@ -36,16 +36,24 @@ beforeEach(() => {
 });
 
 describe("GET /api/preferences", () => {
-  it("returns the engine payload for the session user and resolved org", async () => {
-    getPrefsMock.mockResolvedValueOnce({ response_language: "pt" });
+  it.each([
+    [{ response_language: "pt" }],
+    // A user with nothing stored yet: the engine client maps the worker's
+    // 404 to `{}` and the client seeds from the browser.
+    [{}],
+  ])(
+    "returns the engine payload %j for the session user and resolved org",
+    async (payload) => {
+      getPrefsMock.mockResolvedValueOnce(payload);
 
-    const res = await GET();
+      const res = await GET();
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ response_language: "pt" });
-    expect(resolveOrgMock).toHaveBeenCalledWith(SESSION.user.email);
-    expect(getPrefsMock).toHaveBeenCalledWith(SESSION.user.id, ORG);
-  });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(payload);
+      expect(resolveOrgMock).toHaveBeenCalledWith(SESSION.user.email);
+      expect(getPrefsMock).toHaveBeenCalledWith(SESSION.user.id, ORG);
+    }
+  );
 
   it("returns 401 without a session", async () => {
     authMock.mockResolvedValueOnce(null);
@@ -68,7 +76,8 @@ describe("PUT /api/preferences", () => {
     expect(updatePrefsMock).not.toHaveBeenCalled();
   });
 
-  it("forwards a valid response_language to the engine client and returns its payload", async () => {
+  // What the client sends: an ISO 639-1 code (`toResponseLanguage`).
+  it("forwards response_language to the engine client and returns its payload", async () => {
     updatePrefsMock.mockResolvedValueOnce({ response_language: "pt" });
 
     const res = await PUT(putRequest({ response_language: "pt" }));
@@ -80,6 +89,15 @@ describe("PUT /api/preferences", () => {
       { response_language: "pt" },
       ORG
     );
+  });
+
+  it("returns 500 (not the raw error) when the engine client rejects", async () => {
+    updatePrefsMock.mockRejectedValueOnce(new Error("Engine API error: 400"));
+
+    const res = await PUT(putRequest({ response_language: "pt" }));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Internal server error" });
   });
 
   it("returns 401 without a session", async () => {

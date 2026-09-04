@@ -10,6 +10,12 @@ export interface ChatRequest {
   audio_base64?: string;
   audio_format?: string; // "webm", "ogg", "mp3"
   org?: string; // Organization for MCP server selection (defaults to DEFAULT_ORG)
+  /**
+   * ISO 639-1 code of the interface locale at send time. The worker applies
+   * it to this turn only, without persisting, so a first-time user whose
+   * seed PUT is still in flight is answered in the right language.
+   */
+  response_language_hint?: string;
 }
 
 export type PdfAttachment = {
@@ -53,9 +59,43 @@ export interface ChatHistoryResponse {
   offset: number;
 }
 
+/**
+ * The worker's stable status ids (bt-servant-worker#407). The client reads
+ * only the TTS members (`TTS_STATUS_KEYS`); anything else on the wire is
+ * tolerated and falls back to the message heuristic in use-chat-runtime.ts.
+ */
+export const WORKER_STATUS_KEYS = [
+  "status_queued",
+  "status_processing",
+  "status_preparing",
+  "status_executing_tools",
+  "status_transcribing",
+  "status_tts_generating",
+  "status_tts_still_generating",
+] as const;
+
+export type WorkerStatusKey = (typeof WORKER_STATUS_KEYS)[number];
+
+export function isWorkerStatusKey(key: string): key is WorkerStatusKey {
+  return (WORKER_STATUS_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * The statuses during which the worker is synthesizing speech. This set is
+ * the contract: a key outside it (say a future `status_tts_*_one/_other`
+ * split) keeps the default window until it is added here.
+ */
+export const TTS_STATUS_KEYS: ReadonlySet<WorkerStatusKey> = new Set([
+  "status_tts_generating",
+  "status_tts_still_generating",
+]);
+
 // SSE event types for streaming endpoint (matching backend)
 export type SSEEvent =
-  | { type: "status"; message: string }
+  // `key` is the worker's status id (a `WorkerStatusKey` on a current
+  // worker; typed open because older workers send none and newer ones may
+  // add more); `message` is already localized.
+  | { type: "status"; message: string; key?: string }
   | { type: "progress"; text: string }
   | { type: "complete"; response: ChatResponse }
   | { type: "error"; error: string }

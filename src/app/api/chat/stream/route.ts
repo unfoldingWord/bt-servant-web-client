@@ -12,6 +12,12 @@ const ChatStreamRequestSchema = z.object({
   message_type: z.enum(["text", "audio"]).default("text"),
   audio_base64: z.string().optional(),
   audio_format: z.string().optional(),
+  // Per-turn reply language (ISO 639-1); the worker applies it without
+  // persisting. Same shape the worker validates.
+  response_language_hint: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -68,6 +74,9 @@ export async function POST(req: NextRequest) {
           client_id: CLIENT_ID,
           ...(parsed.audio_base64 && { audio_base64: parsed.audio_base64 }),
           ...(parsed.audio_format && { audio_format: parsed.audio_format }),
+          ...(parsed.response_language_hint && {
+            response_language_hint: parsed.response_language_hint,
+          }),
         }),
       }
     );

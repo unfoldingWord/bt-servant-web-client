@@ -1,10 +1,13 @@
 import { expect, vi, type Mock } from "vitest";
 import { waitFor } from "@testing-library/react";
-import type { ChatHistoryEntry } from "@/types/engine";
+import type { ChatHistoryEntry, UserPreferences } from "@/types/engine";
 import { createSseStream, type SseStream } from "./sse";
 
 // A fetch router standing in for the BFF (`/api/*`). Installed as the global
 // `fetch`; the vitest config's `unstubGlobals` removes it after each test.
+
+/** The preference route, for tests that override or await it. */
+export const PREFERENCES_ROUTE = "/api/preferences";
 
 export type RouteHandler = (
   url: string,
@@ -19,6 +22,22 @@ export interface FakeBffOptions {
    * is pushed onto `streams` so the test can emit events itself.
    */
   onStream?: RouteHandler;
+  /**
+   * What `GET /api/preferences` returns. Default: `{}` (a user with nothing
+   * stored yet). A `PUT` merges into it, so a later `GET` sees the write.
+   */
+  storedPreferences?: UserPreferences;
+  /**
+   * Answers `PUT /api/preferences` after the body has been recorded in
+   * `preferencePuts`. Default: 200 with the merged stored value.
+   */
+  preferencePutResponse?: () => Response | Promise<Response>;
+  /**
+   * Answers `GET /api/preferences`. Default: 200 with the stored value.
+   * Return a promise the test resolves later to hold the load open and
+   * exercise what the client does while it is still out.
+   */
+  preferenceGetResponse?: () => Response | Promise<Response>;
   /** Further routes keyed by pathname (the query string is ignored). */
   extraRoutes?: Record<string, RouteHandler>;
 }
@@ -29,15 +48,20 @@ export interface FakeBff {
   streams: SseStream[];
   /** Parsed JSON bodies of every `POST /api/chat/stream`, oldest first. */
   streamBodies: Array<Record<string, unknown>>;
+  /** Parsed JSON bodies of every `PUT /api/preferences`, oldest first. */
+  preferencePuts: Array<Record<string, unknown>>;
   /**
-   * Resolves once the client has consumed the response body for `pathname`
-   * (`json()`, `text()` or `blob()`). Any state the client sets in the same
-   * promise chain has landed by then, inside a `waitFor` window, so no act()
-   * warning is raised. Real timers only.
+   * Resolves once the client has consumed `times` GET response bodies for
+   * `pathname` (`json()`, `text()` or `blob()`; one per request; writes are
+   * not counted). Any state the client sets in the same promise chain has
+   * landed by then, inside a `waitFor` window, so no act() warning is
+   * raised. Real timers only.
    */
-  bodyConsumed: (pathname: string) => Promise<void>;
+  bodyConsumed: (pathname: string, times?: number) => Promise<void>;
   /** `bodyConsumed("/api/chat/history")`: the thread shows the branch the user would see. */
   historyLoaded: () => Promise<void>;
+  /** `bodyConsumed(PREFERENCES_ROUTE, times)`: the `times`-th GET has been read and applied. */
+  preferencesLoaded: (times?: number) => Promise<void>;
 }
 
 function json(body: unknown): Response {
@@ -65,7 +89,9 @@ function trackConsumption(response: Response, onConsumed: () => void) {
 export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
   const streams: SseStream[] = [];
   const streamBodies: Array<Record<string, unknown>> = [];
-  const consumed = new Set<string>();
+  const preferencePuts: Array<Record<string, unknown>> = [];
+  let stored: UserPreferences = { ...opts.storedPreferences };
+  const consumed = new Map<string, number>();
 
   const routes: Record<string, RouteHandler> = {
     "/api/chat/history": () => json({ entries: opts.historyEntries ?? [] }),
@@ -76,7 +102,19 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
       streams.push(stream);
       return stream.response;
     },
-    "/api/preferences": () => json({}),
+    [PREFERENCES_ROUTE]: (_url, init) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        preferencePuts.push(body);
+        stored = { ...stored, ...body };
+        if (opts.preferencePutResponse) return opts.preferencePutResponse();
+        return json(stored);
+      }
+      if (opts.preferenceGetResponse) return opts.preferenceGetResponse();
+      return json(stored);
+    },
+    // next-auth's getCsrfToken() (user menu) fetches this on mount.
+    "/api/auth/csrf": () => json({ csrfToken: "test-csrf-token" }),
     ...opts.extraRoutes,
   };
 
@@ -90,26 +128,33 @@ export function installFakeBff(opts: FakeBffOptions = {}): FakeBff {
     const { pathname } = new URL(url, "http://localhost");
     const route = routes[pathname];
     if (!route) throw new Error(`Unexpected fetch: ${url}`);
-    return trackConsumption(await route(url, init), () =>
-      consumed.add(pathname)
+    const response = await route(url, init);
+    if ((init?.method ?? "GET").toUpperCase() !== "GET") return response;
+    return trackConsumption(response, () =>
+      consumed.set(pathname, (consumed.get(pathname) ?? 0) + 1)
     );
   });
   vi.stubGlobal("fetch", fetchMock);
 
   // waitFor polls on the real clock; under vi.useFakeTimers() it would hang
   // until its own timeout, so fail fast with the caller's name instead.
-  const waitConsumed = async (name: string, pathname: string) => {
+  const waitConsumed = async (name: string, pathname: string, times = 1) => {
     if (vi.isFakeTimers()) throw new Error(`${name} requires real timers`);
-    await waitFor(() => expect(consumed.has(pathname)).toBe(true), {
-      interval: 5,
-    });
+    await waitFor(
+      () => expect(consumed.get(pathname) ?? 0).toBeGreaterThanOrEqual(times),
+      { interval: 5 }
+    );
   };
 
   return {
     fetchMock,
     streams,
     streamBodies,
-    bodyConsumed: (pathname) => waitConsumed("bodyConsumed", pathname),
+    preferencePuts,
+    bodyConsumed: (pathname, times) =>
+      waitConsumed("bodyConsumed", pathname, times),
     historyLoaded: () => waitConsumed("historyLoaded", "/api/chat/history"),
+    preferencesLoaded: (times) =>
+      waitConsumed("preferencesLoaded", PREFERENCES_ROUTE, times),
   };
 }

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { consoleSpy } from "@/test/console";
-import { LOCALES, SUPPORTED_LOCALES } from "@/test/copy";
+import { LOCALES, SUPPORTED_LOCALES, toResponseLanguage } from "@/test/copy";
 import { installFakeBff, type FakeBffOptions } from "@/test/fake-bff";
 import { completeEvent } from "@/test/fixtures";
 import {
@@ -12,6 +12,7 @@ import {
   teardownMounted,
   trackMount,
 } from "@/test/timers";
+import { VOICE_MESSAGE_SENTINEL } from "@/lib/voice-message";
 import { useChatRuntime } from "./use-chat-runtime";
 
 // Analytics seam. The hook only ever calls `track`; assert on the calls
@@ -28,10 +29,6 @@ const failedEvents = () =>
 // The hook is locale-agnostic: it stores dictionary keys (`status`,
 // `errorKey`), never copy, and needs no LocaleProvider. The rendered copy per
 // locale is asserted in thread.test.tsx.
-
-// The literal the hook stores for a voice turn with no transcript. Kept local
-// on purpose: the test's point is the literal, not a shared constant.
-const VOICE_SENTINEL = "[Voice message]";
 
 type Runtime = ReturnType<typeof useChatRuntime>;
 type Result = { current: Runtime };
@@ -54,9 +51,12 @@ afterEach(teardownMounted);
  * timers, mirroring real usage where history resolves long before the user
  * sends anything.
  */
-async function mountRuntime(opts?: FakeBffOptions) {
+async function mountRuntime(
+  opts?: FakeBffOptions,
+  hookOpts?: Parameters<typeof useChatRuntime>[0]
+) {
   const harness = installFakeBff(opts);
-  const { result, unmount } = renderHook(() => useChatRuntime());
+  const { result, unmount } = renderHook(() => useChatRuntime(hookOpts));
   trackMount({ unmount, streams: harness.streams });
   await harness.historyLoaded();
   return { harness, result };
@@ -68,8 +68,12 @@ async function mountRuntime(opts?: FakeBffOptions) {
  * pushed with `pushAndFlush`, time passes with `advance`, and assertions are
  * synchronous.
  */
-async function startStream(opts?: FakeBffOptions, message: SendArgs = ["hi"]) {
-  const { harness, result } = await mountRuntime(opts);
+async function startStream(
+  opts?: FakeBffOptions,
+  message: SendArgs = ["hi"],
+  hookOpts?: Parameters<typeof useChatRuntime>[0]
+) {
+  const { harness, result } = await mountRuntime(opts, hookOpts);
   vi.useFakeTimers();
   await act(async () => {
     void result.current.sendMessage(...message);
@@ -92,7 +96,7 @@ describe("useChatRuntime — locale-agnostic", () => {
     // not copy (docs/i18n.md, "Never translate"), and is the one string the
     // hook may share with the dictionary; it is masked before scanning.
     const source = readFileSync("src/hooks/use-chat-runtime.ts", "utf8")
-      .split(VOICE_SENTINEL)
+      .split(VOICE_MESSAGE_SENTINEL)
       .join("");
     const leaked = SUPPORTED_LOCALES.flatMap((locale) =>
       Object.entries(LOCALES[locale].dictionary)
@@ -100,6 +104,30 @@ describe("useChatRuntime — locale-agnostic", () => {
         .map(([key]) => `${locale}:${key}`)
     );
     expect(leaked).toEqual([]);
+  });
+});
+
+describe("useChatRuntime — response_language_hint", () => {
+  it.each(SUPPORTED_LOCALES)(
+    "the stream POST body carries the code for %s on every request",
+    async (locale) => {
+      const languageHint = toResponseLanguage(locale);
+      const { harness } = await startStream({}, ["hi"], { languageHint });
+
+      expect(harness.streamBodies).toHaveLength(1);
+      expect(harness.streamBodies[0]).toMatchObject({
+        message: "hi",
+        response_language_hint: languageHint,
+      });
+    }
+  );
+
+  it("sends no hint when the hook is given none", async () => {
+    const { harness } = await startStream();
+
+    expect(harness.streamBodies[0]).not.toHaveProperty(
+      "response_language_hint"
+    );
   });
 });
 
@@ -235,8 +263,14 @@ describe("useChatRuntime — SSE event handling", () => {
 });
 
 describe("useChatRuntime — voice send", () => {
+  // The one literal anchor for the sentinel: it is persisted in chat history
+  // and compared by equality, so the exported constant must never drift.
+  it("the voice sentinel is the persisted literal", () => {
+    expect(VOICE_MESSAGE_SENTINEL).toBe("[Voice message]");
+  });
+
   it.each([
-    ["", VOICE_SENTINEL],
+    ["", VOICE_MESSAGE_SENTINEL],
     ["Hello", "Hello"],
   ])(
     "stores transcript %j as the user turn text %j and posts an audio body",
@@ -306,7 +340,7 @@ describe("useChatRuntime — timeouts", () => {
     expect(failedEvents()[0][1].duration_ms).toBeGreaterThanOrEqual(120_000);
   });
 
-  it("an audio-generation status extends the inactivity window past the 120s default", async () => {
+  it("an audio-generation status without a key (older worker) extends the inactivity window via the English keyword fallback", async () => {
     const { result, stream } = await startStream();
 
     await pushAndFlush(stream, {
@@ -331,6 +365,74 @@ describe("useChatRuntime — timeouts", () => {
     expect(stream.signal?.aborted).toBe(false);
     expect(result.current.isLoading).toBe(true);
   });
+
+  // bt-servant-worker#407 adds a structured `key` to status events and
+  // localizes `message`, so the English keywords are no longer reliable; the
+  // key is authoritative whenever it is present.
+  it.each(["status_tts_generating", "status_tts_still_generating"])(
+    "a status keyed %s extends the inactivity window even when the localized message has no English keyword",
+    async (key) => {
+      const { result, stream } = await startStream();
+
+      await pushAndFlush(stream, {
+        type: "status",
+        key,
+        message: "Gerando resposta em áudio...",
+      });
+      // The message is rendered as-is; the key rides along for the view.
+      expect(result.current.status).toEqual({
+        text: "Gerando resposta em áudio...",
+        key,
+      });
+
+      await advance(125_000);
+      expect(stream.signal?.aborted).toBe(false);
+      expect(result.current.isLoading).toBe(true);
+    }
+  );
+
+  it("a keyed non-TTS status keeps the default 120s window", async () => {
+    const { result, stream } = await startStream();
+
+    await pushAndFlush(stream, {
+      type: "status",
+      key: "status_processing",
+      message: "Processando sua solicitação...",
+    });
+    expect(result.current.status).toEqual({
+      text: "Processando sua solicitação...",
+      key: "status_processing",
+    });
+
+    await advance(115_000);
+    expect(stream.signal?.aborted).toBe(false);
+    await advance(10_000);
+    expect(stream.signal?.aborted).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  // A key the client does not know (a newer worker) is tolerated: it is not
+  // carried on the status and the message heuristic decides the window.
+  it.each([
+    ["Generating audio response", false],
+    ["Processing", true],
+  ])(
+    "an unknown key with message %j falls back to the keyword heuristic (aborted at 125s: %s)",
+    async (message, abortedAfterDefault) => {
+      const { result, stream } = await startStream();
+
+      await pushAndFlush(stream, {
+        type: "status",
+        key: "status_something_new",
+        message,
+      });
+      expect(result.current.status).toEqual({ text: message });
+      expect("key" in result.current.status!).toBe(false);
+
+      await advance(125_000);
+      expect(stream.signal?.aborted).toBe(abortedAfterDefault);
+    }
+  );
 
   it("a new event resets the inactivity clock", async () => {
     const { result, stream } = await startStream();

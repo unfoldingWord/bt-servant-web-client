@@ -53,8 +53,14 @@ export const ptBR = {
   "recorder.cancel": "Cancelar",
   "recorder.stop": "Parar",
 
+  // Audio player
+  "audioPlayer.play": "Reproduzir",
+  "audioPlayer.pause": "Pausar",
+
   // User menu
   "userMenu.trigger": "Menu do usuário",
+  "userMenu.language": "Idioma",
+  "userMenu.languageLockedWhileReplying": "Disponível após a resposta atual",
   "userMenu.signOut": "Sair",
   "userMenu.signOutDescription": "Encerrar sua sessão atual",
 

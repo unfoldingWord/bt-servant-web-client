@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot } from "react-dom/client";
@@ -44,10 +44,6 @@ function parse(markup: string) {
 function stubEnv(value: string | undefined) {
   vi.stubEnv("NEXT_PUBLIC_DEFAULT_LOCALE", value);
 }
-
-afterEach(() => {
-  document.documentElement.lang = "";
-});
 
 describe("LocaleProvider — server render", () => {
   it.each<[string | undefined, Locale]>([
