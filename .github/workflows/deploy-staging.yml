@@ -1,16 +1,22 @@
 name: Deploy Staging
 
+# Staging follows the develop branch only: it deploys after CI succeeds on a
+# push to develop. PR branches never deploy here. The branch filter alone is
+# not enough: a release PR (develop -> main) runs CI with head branch develop
+# too, so the job also requires the CI run to have been triggered by a push.
+# Otherwise each merge into develop would deploy staging twice.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
+    branches: [develop]
 
 jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    # Only deploy if CI succeeded and was triggered by a push (not a PR)
+    # Only deploy if CI succeeded and was triggered by a push to develop
+    # (not by a PR, including a release PR whose head branch is develop)
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
@@ -19,6 +25,10 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Deploy exactly the commit CI validated, not whatever develop's tip
+          # has moved to since.
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-node@v5
         with:
