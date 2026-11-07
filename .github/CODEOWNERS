@@ -1,0 +1,3 @@
+# Every path: a PR into main (a release or a hotfix) needs this review.
+# develop does not require code-owner review; see CLAUDE.md "Branching Model".
+* @IanLindsley

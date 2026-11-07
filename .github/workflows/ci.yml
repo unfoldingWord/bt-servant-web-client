@@ -2,11 +2,33 @@ name: CI
 
 on:
   push:
-    branches: ["*"]
+    branches: [main, develop]
   pull_request:
-    branches: ["*"]
+    branches: [main, develop]
 
 jobs:
+  # Branching model: develop is the integration branch (staging follows it),
+  # main is the release branch (prod deploys from it). main only ever receives
+  # develop, or a hotfix/* branch. Any other PR into main is refused here so a
+  # feature branch cannot skip integration and staging.
+  release-source:
+    name: Release Source
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require develop or hotfix/* as the source of a PR into main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          echo "PR into main from '$HEAD_REF'"
+          case "$HEAD_REF" in
+            develop|hotfix/*) echo "ok" ;;
+            *)
+              echo "::error::PRs into main must come from develop (a release) or hotfix/* (an emergency fix). Open this PR against develop instead."
+              exit 1 ;;
+          esac
+
   # ==========================================
   # Code Quality Checks
   # ==========================================

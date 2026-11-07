@@ -12,6 +12,30 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history so the guard below can check the tag is on main.
+          fetch-depth: 0
+
+      # Branching model: production only ever runs a release, i.e. a v* tag cut on
+      # main after a develop -> main (or hotfix/*) merge. workflow_dispatch accepts
+      # any ref, so refuse a branch, or a tag that never reached main, before any
+      # secret is injected or anything is deployed.
+      - name: Require a release tag on main
+        run: |
+          set -euo pipefail
+          echo "Dispatched on $GITHUB_REF ($GITHUB_SHA)"
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *)
+              echo "::error::Production deploys only from a v* release tag. Re-run with: gh workflow run deploy-cloudflare.yml --ref v<version>"
+              exit 1 ;;
+          esac
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} points at $GITHUB_SHA, which is not on main. Tag the release commit on main."
+            exit 1
+          fi
+          echo "ok: ${GITHUB_REF#refs/tags/} is on main"
 
       - uses: actions/setup-node@v5
         with:
